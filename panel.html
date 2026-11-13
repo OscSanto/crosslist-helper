@@ -1,0 +1,35 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Crosslist Helper</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div class="sticky">
+  <header>
+    <div class="top">
+      <strong>Crosslist Helper</strong>
+      <label class="auto" title="When you switch to a Depop, Poshmark or Mercari tab, jump to that tab here">
+        <input type="checkbox" id="autoSwitch" checked> auto-switch
+      </label>
+    </div>
+    <button id="extractBtn" class="primary">Extract from this eBay page</button>
+    <div id="status" class="status"></div>
+  </header>
+
+  <nav id="tabs">
+    <button data-tab="ebay">eBay</button>
+    <button data-tab="depop">Depop</button>
+    <button data-tab="poshmark">Poshmark</button>
+    <button data-tab="mercari">Mercari</button>
+  </nav>
+  </div>
+
+  <main id="content"></main>
+
+  <script src="mappings.js"></script>
+  <script src="extractor.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>

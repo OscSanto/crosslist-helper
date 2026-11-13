@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Crosslist Helper",
+  "version": "1.0.0",
+  "description": "Pull the details from an eBay listing and stage them for copy-paste into Depop, Poshmark and Mercari.",
+  "action": {
+    "default_title": "Open Crosslist Helper"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["sidePanel", "scripting", "storage", "downloads", "tabs", "clipboardWrite"],
+  "host_permissions": [
+    "*://*.ebay.com/*",
+    "*://*.ebay.ca/*",
+    "*://*.ebay.co.uk/*",
+    "*://*.ebay.com.au/*",
+    "*://*.ebaydesc.com/*",
+    "*://*.ebayimg.com/*"
+  ]
+}
