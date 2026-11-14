@@ -3,13 +3,16 @@
 const state = {
   item: null,
   edits: { depop: {}, poshmark: {}, mercari: {} },
+  ai: null, // { notes, keys: {depop:[...], ...}, at }
   tab: 'ebay',
   autoSwitch: true,
+  answerDraft: '',
 };
+const SITES = ['depop', 'poshmark', 'mercari'];
 
 const $ = (s) => document.querySelector(s);
 
-// Small DOM builder. Text is always set with textContent (safe against odd listing text).
+// Small DOM builder. Text is always set with textContent.
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -33,21 +36,39 @@ function setStatus(msg, kind) {
 
 // ---------------- storage ----------------
 async function load() {
-  const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch']);
+  const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch', 'ai']);
   if (s.item) state.item = s.item;
   if (s.edits) state.edits = { depop: {}, poshmark: {}, mercari: {}, ...s.edits };
   if (s.tab) state.tab = s.tab;
+  if (s.ai) state.ai = s.ai;
   if (typeof s.autoSwitch === 'boolean') state.autoSwitch = s.autoSwitch;
   $('#autoSwitch').checked = state.autoSwitch;
   if (state.item) setStatus('Loaded last item: ' + state.item.title.slice(0, 60), '');
   render();
+  publishFill();
 }
 let saveTimer;
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => chrome.storage.local.set({
-    item: state.item, edits: state.edits, tab: state.tab, autoSwitch: state.autoSwitch,
-  }), 250);
+  saveTimer = setTimeout(() => {
+    chrome.storage.local.set({ item: state.item, edits: state.edits, tab: state.tab, autoSwitch: state.autoSwitch, ai: state.ai });
+    publishFill();
+  }, 250);
+}
+
+// Values the auto-fill script on Depop/Poshmark/Mercari reads.
+function publishFill() {
+  if (!state.item) { chrome.storage.local.set({ fill: {} }); return; }
+  const fill = { _labels: {} };
+  for (const pid of SITES) {
+    fill[pid] = {};
+    fill._labels[pid] = {};
+    for (const f of buildFields(pid, state.item)) {
+      const v = fieldValue(pid, f);
+      if (v && !f.noFill) { fill[pid][f.key] = v; fill._labels[pid][f.key] = f.label; }
+    }
+  }
+  chrome.storage.local.set({ fill });
 }
 
 // ---------------- clipboard ----------------
@@ -79,12 +100,7 @@ function htmlToText(html) {
     .replace(/<\/(p|div|li|h[1-6]|tr|table|section|ul|ol)>/gi, '\n');
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const text = doc.body ? doc.body.textContent : '';
-  return text
-    .split('\n')
-    .map((l) => l.replace(/[ \t ]+/g, ' ').trim())
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return text.split('\n').map((l) => l.replace(/[ \t ]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 async function fetchDescription(url) {
@@ -94,14 +110,8 @@ async function fetchDescription(url) {
 }
 
 function cleanDescription(text) {
-  // Drop lines that only make sense on eBay.
   const ebayOnly = /\bebay\b|feedback|\bbid(s|ding|der)?\b|auction|best offer|combined shipping|positive rating|watch ?list/i;
-  return (text || '')
-    .split('\n')
-    .filter((l) => !ebayOnly.test(l))
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return (text || '').split('\n').filter((l) => !ebayOnly.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function normalize(raw) {
@@ -131,17 +141,11 @@ function normalize(raw) {
   it.fit = get('Fit');
   it.department = get('Department', 'Gender');
   it.countryOfOrigin = get('Country/Region of Manufacture', 'Country of Manufacture', 'Country of Origin');
-  it.sleeveLength = get('Sleeve Length');
-  it.neckline = get('Neckline');
-  it.closure = get('Closure');
   it.occasion = get('Occasion');
-  it.season = get('Season');
   it.features = get('Features', 'Accents');
   it.vintage = get('Vintage');
   it.decade = get('Decade', 'Era');
   it.character = get('Character', 'Character Family');
-  it.productLine = get('Product Line');
-  it.model = get('Model');
   it.conditionNotes = get('Seller Notes', 'Condition Description');
   it.measurements = [
     ['Chest', get('Chest Size', 'Chest', 'Pit to Pit')],
@@ -149,11 +153,11 @@ function normalize(raw) {
     ['Inseam', get('Inseam')],
     ['Rise', get('Rise')],
     ['Length', get('Length', 'Garment Length')],
-    ['Sleeve', get('Sleeve Length (in)')],
   ].filter((m) => m[1]);
   it.description = raw.description || raw.descriptionInline || '';
   it.descriptionClean = cleanDescription(it.description);
   it.originalPrice = ((raw.originalPriceText || '').match(/[\d,]+(?:\.\d{1,2})?/) || [''])[0].replace(/,/g, '');
+  it.sku = 'CL-' + (raw.itemId || Date.now().toString()).slice(-8);
   return it;
 }
 
@@ -181,11 +185,13 @@ async function extract() {
 
     state.item = normalize(raw);
     state.edits = { depop: {}, poshmark: {}, mercari: {} };
-    if (state.tab !== 'ebay' && !PLATFORMS[state.tab]) state.tab = 'ebay';
+    state.ai = null;
+    state.answerDraft = '';
+    state.tab = 'ebay';
     save();
     render();
     const n = Object.keys(raw.specifics).length;
-    setStatus(`Done: ${raw.images.length} photos, ${n} item details${raw.descError ? ' (no description)' : ''}.`, raw.descError ? 'error' : 'ok');
+    setStatus(`Done: ${raw.images.length} photos, ${n} item details${raw.descError ? ' (no description)' : ''}. Next: Ask Claude below.`, raw.descError ? 'error' : 'ok');
   } catch (e) {
     setStatus(e.message || String(e), 'error');
   } finally {
@@ -193,7 +199,7 @@ async function extract() {
   }
 }
 
-// ---------------- per-site field lists ----------------
+// ---------------- field definitions ----------------
 function detailLines(it) {
   const L = [];
   const add = (k, v) => { if (v) L.push(`${k}: ${v}`); };
@@ -222,6 +228,13 @@ function buildDescription(pid, it) {
   return [head, body, details, tags].filter(Boolean).join('\n\n').slice(0, limit);
 }
 
+const nrm = (s) => (s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+// Pick options whose name appears in free text (e.g. eBay "Cotton Blend" -> Depop "Cotton").
+function matchOptions(options, text, max) {
+  const t = nrm(text);
+  if (!t) return [];
+  return options.filter((o) => t.includes(nrm(o)) || nrm(o) === t).slice(0, max);
+}
 function uniq(arr) {
   const seen = new Set();
   return arr.filter((x) => { const k = (x || '').toLowerCase(); if (!x || seen.has(k)) return false; seen.add(k); return true; });
@@ -232,55 +245,149 @@ function buildFields(pid, it) {
   const grade = conditionGrade(it.condition);
   const cond = grade ? CONDITION_MAP[grade][pid] : '';
   const colors = platformColors(pid, it.color);
-  const pick = 'Pick this in the site\'s dropdown.';
-  const condHint = `eBay says: "${it.condition || 'unknown'}". ${pick}`;
+  const cat = suggestCategory(pid, it);
+  const condHint = `eBay says: "${it.condition || 'unknown'}"`;
   const colorHint = `eBay says: "${it.color || 'unknown'}". Up to ${p.maxColors}.`;
   const shipHint = Object.entries(it.logistics || {}).map(([k, v]) => `${k}: ${v}`).join(' · ').slice(0, 200);
+  const A = DEPOP_OPTIONS.attributes;
 
   if (pid === 'depop') {
     return [
       { key: 'description', label: 'Description', value: buildDescription(pid, it), limit: p.descLimit, multiline: true,
         hint: 'Depop has no title box. The first line works as the title. Max 5 hashtags.' },
-      { key: 'category', label: 'Category', value: suggestCategory(pid, it), hint: 'Suggestion. ' + pick },
+      { key: 'category', label: 'Category', value: cat.category, hint: 'Format: Men > Bottoms > Jeans. Pick this first: Size and the extra fields appear after it.' },
       { key: 'brand', label: 'Brand', value: it.brand },
       { key: 'condition', label: 'Condition', value: cond, options: p.conditions, hint: condHint },
-      { key: 'size', label: 'Size', value: it.size, hint: it.sizeType ? 'Size type on eBay: ' + it.sizeType : '' },
-      { key: 'color', label: 'Colour', value: colors.join(', '), options: p.colors, max: p.maxColors, hint: colorHint },
-      { key: 'source', label: 'Source', value: depopSource(it), options: p.sources, max: 2, hint: 'Optional.' },
-      { key: 'age', label: 'Age', value: depopAge(it), options: p.ages, hint: 'Optional.' },
-      { key: 'style', label: 'Style', value: depopStyles(it).join(', '), options: p.styles, max: p.maxStyles, hint: 'Optional, up to 3.' },
-      { key: 'material', label: 'Material', value: it.material, hint: 'Optional.' },
+      { key: 'size', label: 'Size', value: it.size, hint: 'Waist sizes look like 32". ' + (it.sizeType ? 'eBay size type: ' + it.sizeType : '') },
+      { key: 'color', label: 'Color', value: colors.join(', '), options: p.colors, max: p.maxColors, hint: colorHint },
+      { key: 'attr_type', label: 'Type', value: '', hint: 'Only some categories have this (jeans wash, jacket type, sneaker type…).' },
+      { key: 'attr_fit', label: 'Fit', value: matchOptions(A.Fit.options, it.fit + ' ' + it.style, 1).join(''), options: A.Fit.options, hint: 'Jeans and pants only.' },
+      { key: 'attr_bodyfit', label: 'Body fit', value: matchOptions(A['Body fit'].options, it.sizeType, 1).join(''), options: A['Body fit'].options, hint: 'Only if Petite / Plus / Tall / Maternity.' },
+      { key: 'attr_length', label: 'Length', value: '', options: A.Length.options, hint: 'Dresses and skirts only.' },
+      { key: 'material', label: 'Material', value: matchOptions(A.Material.options, it.material, 3).join(', '), options: A.Material.options, max: 3 },
+      { key: 'occasion', label: 'Occasion', value: matchOptions(A.Occasion.options, it.occasion, 3).join(', '), options: A.Occasion.options, max: 3 },
+      { key: 'sku', label: 'SKU', value: it.sku, hint: 'Private code so you can find this item on every site later.' },
+      { key: 'source', label: 'Source', value: depopSource(it), options: p.sources, max: 2 },
+      { key: 'age', label: 'Age', value: depopAge(it), options: p.ages },
+      { key: 'style', label: 'Style', value: depopStyles(it).join(', '), options: p.styles, max: p.maxStyles },
       { key: 'price', label: 'Price', value: it.price, hint: `eBay price: ${it.priceText || it.price}` },
-      { key: 'shipping', label: 'Shipping (eBay info, for reference)', value: '', hint: shipHint || 'Choose a parcel size on Depop.' },
+      { key: 'package', label: 'Package size', value: '', options: DEPOP_OPTIONS.packageSizes, hint: DEPOP_OPTIONS.packageHint + (shipHint ? ' · eBay: ' + shipHint : '') },
     ];
   }
   if (pid === 'poshmark') {
-    const tags = uniq([it.style, it.pattern, it.theme, it.fit, it.type]).slice(0, p.maxStyles);
+    const tags = uniq([it.style, it.pattern, it.theme, it.fit]).slice(0, p.maxStyles);
     return [
       { key: 'title', label: 'Title', value: (it.title || '').slice(0, p.titleLimit), limit: p.titleLimit },
       { key: 'description', label: 'Description', value: buildDescription(pid, it), limit: p.descLimit, multiline: true },
-      { key: 'category', label: 'Category', value: suggestCategory(pid, it), hint: 'Suggestion. ' + pick },
-      { key: 'size', label: 'Size', value: it.size, hint: it.sizeType ? 'Size type on eBay: ' + it.sizeType : '' },
-      { key: 'brand', label: 'Brand', value: it.brand },
+      { key: 'category', label: 'Category', value: cat.category, hint: 'Format: Men > Jeans', optionsFrom: () => Object.keys(POSHMARK_OPTIONS.categories) },
+      { key: 'subcategory', label: 'Subcategory', value: cat.subcategory, optionsFrom: (vals) => POSHMARK_OPTIONS.categories[vals.category] || [] },
+      { key: 'size', label: 'Size', value: it.size, hint: 'Men\'s jeans/pants look like "Waist 32".' },
       { key: 'condition', label: 'Condition', value: cond, options: p.conditions, hint: condHint },
+      { key: 'brand', label: 'Brand', value: it.brand },
       { key: 'color', label: 'Color', value: colors.join(', '), options: p.colors, max: p.maxColors, hint: colorHint },
-      { key: 'styleTags', label: 'Style tags', value: tags.join(', '), hint: 'Up to 3, type each one.' },
-      { key: 'originalPrice', label: 'Original price', value: it.originalPrice, hint: 'Retail price when new. Leave empty if unknown.' },
-      { key: 'price', label: 'Listing price', value: it.price, hint: `eBay price: ${it.priceText || it.price}. Poshmark minimum is $3.` },
+      { key: 'styleTags', label: 'Style tags', value: tags.join(', '), hint: 'Up to 3, free text.' },
+      { key: 'sku', label: 'Listing SKU', value: it.sku, hint: 'Under "Additional details (private)".' },
+      { key: 'originalPrice', label: 'Original price', value: it.originalPrice, hint: 'Retail price when new.' },
+      { key: 'price', label: 'Listing price', value: it.price, hint: `eBay price: ${it.priceText || it.price}. A price pop-up opens; finish it and click Done.` },
     ];
   }
-  // mercari
   return [
     { key: 'title', label: 'Title', value: (it.title || '').slice(0, p.titleLimit), limit: p.titleLimit },
     { key: 'description', label: 'Description', value: buildDescription(pid, it), limit: p.descLimit, multiline: true },
-    { key: 'category', label: 'Category', value: suggestCategory(pid, it), hint: 'Suggestion. ' + pick },
+    { key: 'category', label: 'Category', value: cat.category, hint: 'Best guess. Pick it in Mercari\'s menu.', noFill: true },
     { key: 'brand', label: 'Brand', value: it.brand },
-    { key: 'condition', label: 'Condition', value: cond, options: p.conditions, hint: condHint },
-    { key: 'size', label: 'Size', value: it.size },
-    { key: 'color', label: 'Color', value: colors.join(', '), options: p.colors, max: p.maxColors, hint: colorHint },
+    { key: 'condition', label: 'Condition', value: cond, options: p.conditions, hint: condHint, noFill: true },
+    { key: 'size', label: 'Size', value: it.size, noFill: true },
+    { key: 'color', label: 'Color', value: colors.join(', '), options: p.colors, max: p.maxColors, hint: colorHint, noFill: true },
     { key: 'price', label: 'Price', value: it.price, hint: `eBay price: ${it.priceText || it.price}` },
-    { key: 'shipping', label: 'Shipping weight', value: '', hint: shipHint || 'Weigh the packed item. eBay does not show this.' },
+    { key: 'shipping', label: 'Shipping weight', value: '', hint: shipHint || 'Weigh the packed item.', noFill: true },
   ];
+}
+
+function fieldValue(pid, f) {
+  const e = state.edits[pid] || {};
+  return f.key in e ? e[f.key] : f.value || '';
+}
+
+// ---------------- Ask Claude ----------------
+async function downloadPhotos(n) {
+  const it = state.item;
+  const folder = 'Crosslist/' + (it.itemId || 'item').replace(/[^\w-]/g, '');
+  const ids = [];
+  for (let i = 0; i < n; i++) {
+    ids.push(await chrome.downloads.download({
+      url: it.images[i],
+      filename: `${folder}/${String(i + 1).padStart(2, '0')}.jpg`,
+      conflictAction: 'overwrite',
+      saveAs: false,
+    }));
+  }
+  // Find where Chrome put them (full path) so Claude Code can open them.
+  let first = '';
+  for (let t = 0; t < 15 && !first; t++) {
+    const [d] = await chrome.downloads.search({ id: ids[0] });
+    first = (d && d.filename) || '';
+    if (!first) await new Promise((r) => setTimeout(r, 200));
+  }
+  return first ? first.replace(/[\\/][^\\/]+$/, '') : '';
+}
+
+async function copyPrompt(btn) {
+  const it = state.item;
+  const n = Math.min(it.images.length, 12);
+  btn.disabled = true;
+  btn.textContent = 'Saving photos…';
+  let dir = '';
+  try { dir = await downloadPhotos(n); } catch (e) { /* still copy the prompt */ }
+  const photoInfo = n
+    ? `There are ${n} photos (01.jpg – ${String(n).padStart(2, '0')}.jpg)` +
+      (dir ? ` saved in this folder: ${dir}\nIf you can open files on this computer, open every one of them. Otherwise they are attached to this message.` : '. They are attached to this message.')
+    : 'No photos. Use the eBay data only.';
+  await copyText(buildPrompt(it, photoInfo));
+  btn.disabled = false;
+  btn.textContent = 'Copied! Now paste it into Claude';
+  setTimeout(() => (btn.textContent = '1. Copy prompt (and save photos)'), 2500);
+  state.photoDir = dir;
+  render();
+}
+
+function applyAnswer(text) {
+  try {
+    const ans = parseClaudeAnswer(text);
+    const edits = answerToEdits(ans);
+    const keys = {};
+    for (const pid of SITES) {
+      state.edits[pid] = { ...state.edits[pid], ...edits[pid] };
+      keys[pid] = Object.keys(edits[pid]);
+    }
+    const total = SITES.reduce((n, pid) => n + keys[pid].length, 0);
+    if (!total) throw new Error('The answer had no fields in it.');
+    state.ai = { notes: ans.notes || '', keys, at: new Date().toISOString() };
+    state.answerDraft = '';
+    save();
+    render();
+    setStatus(`Claude filled ${total} fields. Check the Depop / Poshmark / Mercari tabs.`, 'ok');
+  } catch (e) {
+    setStatus('Could not read the answer: ' + e.message, 'error');
+  }
+}
+
+function askClaudeCard() {
+  const ta = h('textarea', { placeholder: 'Paste Claude\'s whole reply here…', style: 'min-height:90px' });
+  ta.value = state.answerDraft || '';
+  ta.addEventListener('input', () => { state.answerDraft = ta.value; });
+  return h('div', { class: 'card ai' },
+    h('h3', {}, 'Ask Claude (fills every field)', state.ai ? h('span', { class: 'badge' }, 'done') : null),
+    h('ol', { class: 'steps' },
+      h('li', {}, h('button', { class: 'primary small', onclick: (e) => copyPrompt(e.currentTarget) }, '1. Copy prompt (and save photos)')),
+      h('li', {}, 'Paste it into a Claude chat. ',
+        h('a', { href: '#', onclick: (e) => { e.preventDefault(); chrome.tabs.create({ url: 'https://claude.ai/new' }); } }, 'Open claude.ai'),
+        ', pick Haiku in the model menu, and drag in the photos from ',
+        h('code', {}, state.photoDir || 'Downloads\\Crosslist\\' + (state.item.itemId || 'item')),
+        '. In Claude Code you can paste it as is: it opens the photos itself.'),
+      h('li', {}, 'Copy Claude\'s reply and paste it here:', ta,
+        h('button', { class: 'primary small', onclick: () => applyAnswer(ta.value) }, '2. Use this answer'))),
+    state.ai && state.ai.notes ? h('div', { class: 'notes' }, h('b', {}, 'Claude says: '), state.ai.notes) : null);
 }
 
 // ---------------- rendering ----------------
@@ -291,7 +398,8 @@ function render() {
   if (!state.item) {
     c.append(h('div', { class: 'empty' },
       '1. Open an eBay listing.', h('br'), '2. Click "Extract from this eBay page".', h('br'),
-      '3. Use the tabs to copy each field into Depop, Poshmark or Mercari.'));
+      '3. Ask Claude to fill in every site\'s fields.', h('br'),
+      '4. Open each site\'s sell page and click "Fill everything".'));
     return;
   }
   if (state.tab === 'ebay') renderEbay(c);
@@ -307,26 +415,12 @@ function photosCard(limit, label) {
       h('img', { src, loading: 'lazy', alt: '' }), h('span', {}, i + 1))));
   return h('div', { class: 'card' },
     h('h3', {}, `Photos (${imgs.length})`,
-      h('button', { onclick: (e) => downloadPhotos(n, e.currentTarget) }, `Download ${n}`)),
+      h('button', { onclick: async (e) => { const b = e.currentTarget; await downloadPhotos(n); b.textContent = 'Saved!'; } }, `Download ${n}`)),
     grid,
     h('div', { class: 'note' },
-      `Saves to your Downloads folder in Crosslist/${it.itemId || 'item'}/. ` +
-      (limit && imgs.length > limit ? `${label} allows ${limit} photos; faded ones are left out.` : '') +
-      ' Then drag them into the upload box.'));
-}
-
-async function downloadPhotos(n, btn) {
-  const it = state.item;
-  const folder = 'Crosslist/' + (it.itemId || 'item').replace(/[^\w-]/g, '');
-  for (let i = 0; i < n; i++) {
-    await chrome.downloads.download({
-      url: it.images[i],
-      filename: `${folder}/${String(i + 1).padStart(2, '0')}.jpg`,
-      conflictAction: 'overwrite',
-      saveAs: false,
-    });
-  }
-  if (btn) { btn.textContent = 'Saved!'; setTimeout(() => (btn.textContent = `Download ${n}`), 1500); }
+      `Saves to Downloads\\Crosslist\\${it.itemId || 'item'}\\. ` +
+      (limit && imgs.length > limit ? `${label} allows ${limit} photos; faded ones are left out. ` : '') +
+      'Drag them into the upload box.'));
 }
 
 function renderEbay(c) {
@@ -336,8 +430,9 @@ function renderEbay(c) {
     h('div', { class: 'price-big' }, it.priceText || it.price),
     h('div', {}, it.condition),
     h('div', { class: 'note' }, h('a', { href: it.url, target: '_blank' }, 'Open eBay listing'),
-      ` · item ${it.itemId} · read ${new Date(it.extractedAt).toLocaleString()}`)));
+      ` · item ${it.itemId} · SKU ${it.sku}`)));
 
+  c.append(askClaudeCard());
   c.append(photosCard(0));
 
   const key = [
@@ -357,9 +452,6 @@ function renderEbay(c) {
     it.descError ? h('div', { class: 'hint warn' }, it.descError) : null,
     desc,
     h('div', { class: 'note' }, 'Lines that mention eBay, feedback, bids or offers were removed.')));
-
-  const log = Object.entries(it.logistics || {});
-  if (log.length) c.append(specsCard('Shipping & returns (eBay)', log));
 }
 
 function specsCard(title, rows) {
@@ -373,28 +465,35 @@ function specsCard(title, rows) {
 
 function renderPlatform(c, pid) {
   const p = PLATFORMS[pid];
-  const it = state.item;
-  const fields = buildFields(pid, it);
-  const edits = state.edits[pid];
-  const val = (f) => (f.key in edits ? edits[f.key] : f.value || '');
+  const fields = buildFields(pid, state.item);
+  const vals = Object.fromEntries(fields.map((f) => [f.key, fieldValue(pid, f)]));
 
   c.append(h('div', { class: 'toolbar' },
     h('button', { onclick: () => chrome.tabs.create({ url: p.sellUrl }) }, `Open ${p.name} sell page`),
-    h('button', { onclick: (e) => copyText(fields.filter((f) => val(f)).map((f) => `${f.label}: ${val(f)}`).join('\n\n'), e.currentTarget) }, 'Copy everything'),
-    h('button', { title: 'Undo your edits on this tab', onclick: () => { state.edits[pid] = {}; save(); render(); } }, 'Reset')));
+    h('button', { onclick: (e) => copyText(fields.filter((f) => vals[f.key]).map((f) => `${f.label}: ${vals[f.key]}`).join('\n\n'), e.currentTarget) }, 'Copy everything'),
+    h('button', { title: 'Undo edits and Claude\'s answers on this tab', onclick: () => { state.edits[pid] = {}; if (state.ai) state.ai.keys[pid] = []; save(); render(); } }, 'Reset')));
+
+  c.append(h('div', { class: 'tip' },
+    `On ${p.name}'s sell page a "Crosslist Helper" box appears in the corner. Click "Fill everything", or click into a field and use the ✨ button. ` +
+    (pid === 'mercari' ? 'Mercari only fills title, description, brand and price for now.' : 'You still add photos and click Post yourself.')));
+
+  if (!state.ai) c.append(h('div', { class: 'tip warn' }, 'These are rule-based guesses. Use "Ask Claude" on the eBay tab for better answers.'));
+  if (state.ai && state.ai.notes) c.append(h('div', { class: 'notes' }, h('b', {}, 'Claude says: '), state.ai.notes));
 
   c.append(photosCard(p.maxPhotos, p.name));
 
   const card = h('div', { class: 'card' });
-  fields.forEach((f) => card.append(fieldRow(pid, f, val(f))));
+  const aiKeys = (state.ai && state.ai.keys[pid]) || [];
+  fields.forEach((f) => card.append(fieldRow(pid, f, vals[f.key], aiKeys.includes(f.key), vals)));
   c.append(card);
 }
 
-function fieldRow(pid, f, value) {
+function fieldRow(pid, f, value, fromAI, vals) {
   const input = f.multiline ? h('textarea', {}) : h('input', { type: 'text' });
   input.value = value;
   const count = f.limit ? h('span', { class: 'count' }) : null;
-  const chips = f.options ? h('div', { class: 'chips' }) : null;
+  const options = f.options || (f.optionsFrom ? f.optionsFrom(vals) : null);
+  const chips = options && options.length ? h('div', { class: 'chips' }) : null;
 
   const listOf = () => input.value.split(',').map((s) => s.trim()).filter(Boolean);
   const refresh = () => {
@@ -407,15 +506,16 @@ function fieldRow(pid, f, value) {
       chips.querySelectorAll('.chip').forEach((ch) => ch.classList.toggle('on', on.includes(ch.textContent.toLowerCase())));
     }
   };
-  const commit = () => { state.edits[pid][f.key] = input.value; save(); refresh(); };
-  input.addEventListener('input', commit);
+  const commit = (rerender) => { state.edits[pid][f.key] = input.value; save(); refresh(); if (rerender) render(); };
+  input.addEventListener('input', () => commit(false));
+  if (f.key === 'category') input.addEventListener('change', () => commit(true));
 
   if (chips) {
-    f.options.forEach((o) => chips.append(h('button', {
+    options.forEach((o) => chips.append(h('button', {
       class: 'chip',
       onclick: () => {
         if ((f.max || 1) > 1) {
-          let list = listOf();
+          const list = listOf();
           const i = list.findIndex((x) => x.toLowerCase() === o.toLowerCase());
           if (i >= 0) list.splice(i, 1);
           else if (list.length < f.max) list.push(o);
@@ -423,19 +523,19 @@ function fieldRow(pid, f, value) {
         } else {
           input.value = o;
         }
-        commit();
+        commit(f.key === 'category');
       },
     }, o)));
   }
   refresh();
 
   const optionsBlock = chips
-    ? h('details', { open: !value ? true : null }, h('summary', {}, `${f.label} options on ${PLATFORMS[pid].name} (click to choose)`), chips)
+    ? h('details', { open: !value ? true : null }, h('summary', {}, `${options.length} options on ${PLATFORMS[pid].name} (click to choose)`), chips)
     : null;
 
   return h('div', { class: 'field' },
     h('div', { class: 'field-head' },
-      h('label', {}, f.label), count,
+      h('label', {}, f.label), fromAI ? h('span', { class: 'badge', title: 'Filled by Claude' }, 'AI') : null, count,
       h('button', { class: 'copy', onclick: (e) => copyText(input.value, e.currentTarget) }, 'Copy')),
     input,
     f.hint ? h('div', { class: 'hint' }, f.hint) : null,
@@ -453,14 +553,13 @@ function siteFromUrl(u) {
   if (/depop\.com/i.test(u)) return 'depop';
   if (/poshmark\./i.test(u)) return 'poshmark';
   if (/mercari\.com/i.test(u)) return 'mercari';
-  if (/ebay\./i.test(u)) return 'ebay';
   return null;
 }
 async function followActiveTab() {
   if (!state.autoSwitch || !state.item) return;
   const t = await activeTab();
   const site = siteFromUrl((t && t.url) || '');
-  if (site && site !== 'ebay' && site !== state.tab) { state.tab = site; save(); render(); }
+  if (site && site !== state.tab) { state.tab = site; save(); render(); }
 }
 chrome.tabs.onActivated.addListener(followActiveTab);
 chrome.tabs.onUpdated.addListener((id, info) => { if (info.url) followActiveTab(); });

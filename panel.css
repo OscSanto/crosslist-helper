@@ -80,3 +80,15 @@ table.specs tr:hover td { background: var(--chip); }
 .title-big { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
 .price-big { font-size: 18px; font-weight: 700; }
 a { color: var(--accent); }
+
+/* Ask Claude + auto-fill */
+.card.ai { border-color: var(--accent); }
+.steps { margin: 0; padding-left: 18px; }
+.steps li { margin-bottom: 8px; }
+.steps textarea { min-height: 90px; margin: 4px 0; }
+button.small { width: auto; padding: 5px 10px; font-size: 12px; }
+code { font-size: 11px; background: var(--chip); padding: 1px 4px; border-radius: 3px; word-break: break-all; }
+.badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: var(--accent); color: #fff; }
+.tip { font-size: 12px; color: var(--muted); background: var(--card); border: 1px dashed var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 10px; }
+.tip.warn { color: var(--bad); }
+.notes { font-size: 12px; background: var(--chip); border-radius: 6px; padding: 6px 8px; margin: 6px 0 10px; }

@@ -1,0 +1,20 @@
+# Chrome "Pack extension" output: the .pem is the extension's private signing key
+*.pem
+*.crx
+*.zip
+
+# Secrets / local config
+.env
+.env.*
+*.key
+secrets*.json
+
+# Editor / OS / tooling
+.vscode/
+.idea/
+.claude/
+node_modules/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
