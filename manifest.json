@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Crosslist Helper",
-  "version": "1.1.1",
+  "version": "1.4.2",
   "description": "Extract an eBay listing, ask Claude to fill in every field, and auto-fill the Depop, Poshmark and Mercari sell forms.",
   "action": {
     "default_title": "Open Crosslist Helper"
