@@ -8,7 +8,10 @@ const state = {
   autoSwitch: true,
   answerDraft: '',
   photoOrder: {}, // { depop: [url, ...], ... } per-site photo order chosen by dragging
+  mine: { depop: {}, poshmark: {}, mercari: {} }, // values YOU set (panel or sell page); beat eBay and Claude
+  library: {}, // { <eBay item id>: { mine, title, at } } your saved changes for every item, kept across re-extracts
 };
+const emptyMine = () => ({ depop: {}, poshmark: {}, mercari: {} });
 const SITES = ['depop', 'poshmark', 'mercari'];
 
 const $ = (s) => document.querySelector(s);
@@ -37,7 +40,9 @@ function setStatus(msg, kind) {
 
 // ---------------- storage ----------------
 async function load() {
-  const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch', 'ai', 'photoOrder']);
+  const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch', 'ai', 'photoOrder', 'mine', 'library']);
+  if (s.mine) state.mine = { ...emptyMine(), ...s.mine };
+  if (s.library) state.library = s.library;
   if (s.photoOrder) state.photoOrder = s.photoOrder;
   if (s.item) { try { state.item = normalize(s.item); } catch (e) { state.item = s.item; } }
   if (s.edits) state.edits = { depop: {}, poshmark: {}, mercari: {}, ...s.edits };
@@ -54,7 +59,12 @@ let saveTimer;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    chrome.storage.local.set({ item: state.item, edits: state.edits, tab: state.tab, autoSwitch: state.autoSwitch, ai: state.ai, photoOrder: state.photoOrder });
+    if (state.item && state.item.itemId) {
+      const any = SITES.some((pid) => Object.keys(state.mine[pid] || {}).length);
+      if (any) state.library[state.item.itemId] = { mine: state.mine, title: state.item.title, at: Date.now() };
+      else delete state.library[state.item.itemId];
+    }
+    chrome.storage.local.set({ item: state.item, edits: state.edits, tab: state.tab, autoSwitch: state.autoSwitch, ai: state.ai, photoOrder: state.photoOrder, mine: state.mine, library: state.library });
     publishFill();
   }, 250);
 }
@@ -68,7 +78,8 @@ function publishFill() {
     fill._labels[pid] = {};
     for (const f of buildFields(pid, state.item)) {
       const v = fieldValue(pid, f);
-      if (v && !f.noFill) { fill[pid][f.key] = v; fill._labels[pid][f.key] = f.label; }
+      fill._labels[pid][f.key] = f.label;
+      if (v && !f.noFill) fill[pid][f.key] = v;
     }
   }
   chrome.storage.local.set({ fill });
@@ -188,13 +199,17 @@ async function extract() {
 
     state.item = normalize(raw);
     state.edits = { depop: {}, poshmark: {}, mercari: {} };
+    const kept = state.library[state.item.itemId];
+    state.mine = kept ? { ...emptyMine(), ...kept.mine } : emptyMine();
     state.ai = null;
     state.answerDraft = '';
     state.tab = 'ebay';
     save();
     render();
     const n = Object.keys(raw.specifics).length;
-    setStatus(`Done: ${raw.images.length} photos, ${n} item details${raw.descError ? ' (no description)' : ''}. Next: Ask Claude below.`, raw.descError ? 'error' : 'ok');
+    const nMine = SITES.reduce((k, pid) => k + Object.keys(state.mine[pid]).length, 0);
+    setStatus(`Done: ${raw.images.length} photos, ${n} item details${raw.descError ? ' (no description)' : ''}.` +
+      (nMine ? ` Restored ${nMine} of your saved changes.` : '') + ' Next: Ask Claude below.', raw.descError ? 'error' : 'ok');
   } catch (e) {
     setStatus(e.message || String(e), 'error');
   } finally {
@@ -308,9 +323,57 @@ function buildFields(pid, it) {
 }
 
 function fieldValue(pid, f) {
+  const m = state.mine[pid] || {};
+  if (f.key in m) return m[f.key];
   const e = state.edits[pid] || {};
   return f.key in e ? e[f.key] : f.value || '';
 }
+
+const SHARED_KEYS = ['title', 'description', 'brand', 'size', 'price', 'sku'];
+
+// Changes you made on a sell page and clicked "Save my changes" for.
+function fromPage(site, key, v) {
+  // Depop's category box only shows the last part ("Jeans"). Turn it back into "Men > Bottoms > Jeans".
+  if (site === 'depop' && key === 'category' && !v.includes('>')) {
+    const cur = fieldValue('depop', { key, value: '' });
+    if (nrm(cur).endsWith(nrm(v))) return cur;
+    const dept = (cur.split('>')[0] || '').trim();
+    const hits = [];
+    for (const [g, subs] of Object.entries(DEPOP_OPTIONS.categories)) for (const sub of subs) if (nrm(sub) === nrm(v)) hits.push(`${g} > ${sub}`);
+    return hits.find((x) => x.startsWith(dept + ' ')) || hits[0] || v;
+  }
+  return v;
+}
+chrome.storage.onChanged.addListener((ch) => {
+  const ps = ch.pageSave && ch.pageSave.newValue;
+  if (!ps || !state.item || !SITES.includes(ps.site)) return;
+  if (ps.sku && state.item.sku && ps.sku !== state.item.sku) {
+    setStatus(`Those ${PLATFORMS[ps.site].name} changes are for a different item (SKU ${ps.sku}). Not saved.`, 'error');
+    return;
+  }
+  const keys = Object.keys(ps.values);
+  for (const k of keys) state.mine[ps.site][k] = fromPage(ps.site, k, ps.values[k]);
+  // Optionally copy the fields that mean the same thing everywhere to the other sites.
+  const copied = [];
+  if (ps.share) {
+    for (const other of SITES.filter((x) => x !== ps.site)) {
+      const has = new Set(buildFields(other, state.item).map((f) => f.key));
+      for (const k of keys) {
+        if (!SHARED_KEYS.includes(k) || !has.has(k)) continue;
+        let v = state.mine[ps.site][k];
+        const lim = k === 'title' ? PLATFORMS[other].titleLimit : k === 'description' ? PLATFORMS[other].descLimit : 0;
+        if (lim && v.length > lim) v = v.slice(0, lim);
+        state.mine[other][k] = v;
+        copied.push(PLATFORMS[other].name + ' ' + k);
+      }
+    }
+  }
+  save();
+  render();
+  setStatus(`Saved ${keys.length} change(s) from ${PLATFORMS[ps.site].name}` +
+    (copied.length ? ` and copied ${copied.length} to the other sites` : '') +
+    '. They stay with this item, even if you extract it again.', 'ok');
+});
 
 // ---------------- Ask Claude ----------------
 async function downloadPhotos(n, urls, sub) {
@@ -549,7 +612,12 @@ function fieldRow(pid, f, value, fromAI, vals) {
       chips.querySelectorAll('.chip').forEach((ch) => ch.classList.toggle('on', on.includes(ch.textContent.toLowerCase())));
     }
   };
-  const commit = (rerender) => { state.edits[pid][f.key] = input.value; save(); refresh(); if (rerender) render(); };
+  const commit = (rerender) => {
+    const wasMine = f.key in state.mine[pid];
+    state.mine[pid][f.key] = input.value;
+    save(); refresh();
+    if (rerender || !wasMine) render(); // show the "You" badge
+  };
   input.addEventListener('input', () => commit(false));
   if (f.key === 'category') input.addEventListener('change', () => commit(true));
 
@@ -578,7 +646,12 @@ function fieldRow(pid, f, value, fromAI, vals) {
 
   return h('div', { class: 'field' },
     h('div', { class: 'field-head' },
-      h('label', {}, f.label), fromAI ? h('span', { class: 'badge', title: 'Filled by Claude' }, 'AI') : null, count,
+      h('label', {}, f.label),
+      f.key in state.mine[pid]
+        ? [h('span', { class: 'badge you', title: 'You set this. It is saved with this item.' }, 'You'),
+           h('button', { class: 'small', title: 'Go back to the eBay / Claude value', onclick: () => { delete state.mine[pid][f.key]; save(); render(); } }, 'Undo')]
+        : fromAI ? h('span', { class: 'badge', title: 'Filled by Claude' }, 'AI') : null,
+      count,
       h('button', { class: 'copy', onclick: (e) => copyText(input.value, e.currentTarget) }, 'Copy')),
     input,
     f.hint ? h('div', { class: 'hint' }, f.hint) : null,

@@ -30,6 +30,8 @@ After you change any file, click the reload arrow on the extension card in `chro
 7. Photos: on each site's tab, drag the photos into the order you want. Only the first ones the site allows (8 on Depop) are kept; the faded ones are left out. Dropping a photo into a kept spot pushes the last kept photo out. **Download** saves them as `01.jpg`, `02.jpg`… in `Downloads\Crosslist\<item number>\<site>\`.
 8. Drag the photos into the sell page, check everything, and post.
 
+**Your own changes.** If you change or add a value on the sell page yourself, the corner box notices it and lists it under **You changed N fields here** (old value → new value). Untick anything you don't want, then click **Save my changes to Crosslist**. If you changed the title, description, brand, size, price or SKU, you can tick **Also use … on the other sites** to copy those to the other two sites too (titles and descriptions are cut to each site's limit). The box remembers that choice. Saved values get a **You** badge in the panel and win over both eBay and Claude. They are kept with that eBay item, so if you extract the same listing again later they come back. Edits you type in the panel are saved the same way. **Undo** next to a **You** badge goes back to the eBay/Claude value. (Poshmark style tags are not tracked.)
+
 The panel's site tabs show every value, with **Copy** buttons and the site's real options. Fields Claude filled have an **AI** badge. You can edit anything.
 
 ## What gets auto-filled

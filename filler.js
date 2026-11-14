@@ -272,6 +272,47 @@
     { key: 'price', find: () => mercariField('price'), kind: 'text' },
   ];
 
+  // ---------------- read what is on the page now (to spot your own changes) ----------------
+  const notPicked = (t) => !t || /^select\b/i.test(t);
+  function readDepop(f, el) {
+    if (f.kind === 'text' || f.kind === 'category' || f.kind === 'brand') return el.value.trim();
+    // Multi-selects show chips next to the input; single-selects show the value in the input.
+    const chips = leaves(el.parentElement).map((c) => c.textContent.trim());
+    return chips.length ? chips.join(', ') : el.value.trim();
+  }
+  const POSH_DEPTS = ['Women', 'Men', 'Kids', 'Home', 'Pets', 'Electronics'];
+  function readPosh(f, el) {
+    if (f.kind === 'text') return el.value.trim();
+    if (f.kind === 'tags') return null; // chosen tags can't be told apart from the suggestions
+    const sels = [...el.querySelectorAll('.dropdown__selector')];
+    const text = (i) => (sels[i] ? sels[i].innerText.trim() : '');
+    if (f.kind === 'category') {
+      const t = text(0);
+      if (notPicked(t)) return '';
+      const d = POSH_DEPTS.find((x) => t.startsWith(x + ' '));
+      return d ? `${d} > ${t.slice(d.length + 1)}` : t; // "Men Jeans" -> "Men > Jeans"
+    }
+    if (f.kind === 'subcategory') { const t = text(1); return notPicked(t) ? '' : t; }
+    const t = text(0);
+    if (notPicked(t)) return '';
+    return t.split('\n').map((x) => x.trim()).filter(Boolean).join(', ');
+  }
+  const readOne = { depop: readDepop, poshmark: readPosh, mercari: (f, el) => el.value.trim() }[SITE];
+
+  // Does the page value mean the same as the staged value?
+  // ("Jeans" vs "Men > Bottoms > Jeans", "Medium" vs "MediumUnder 1lb", "25" vs "25.00")
+  function same(pageV, stagedV) {
+    const a = toList(pageV).map(norm).filter(Boolean).sort();
+    const b = toList(stagedV).map(norm).filter(Boolean).sort();
+    if (a.join() === b.join()) return true;
+    if (/^\$?[\d.,]+$/.test(String(pageV).trim()) && parseFloat(String(pageV).replace(/[$,]/g, '')) === parseFloat(String(stagedV).replace(/[$,]/g, ''))) return true;
+    if (a.length !== b.length) return false;
+    return a.every((x, i) => {
+      const y = b[i];
+      return x === y || (x.length > 1 && (y.startsWith(x) || y.endsWith(x))) || (y.length > 1 && (x.startsWith(y) || x.endsWith(y)));
+    });
+  }
+
   const FIELDS = { depop: DEPOP_FIELDS, poshmark: POSH_FIELDS, mercari: MERCARI_FIELDS }[SITE];
   const fillOne = { depop: fillDepop, poshmark: fillPosh, mercari: async (f, el, v) => setValue(el, v) }[SITE];
 
@@ -284,7 +325,43 @@
     labels = (s.fill && s.fill._labels && s.fill._labels[SITE]) || {};
     render();
   }
-  chrome.storage.onChanged.addListener((ch) => { if (ch.fill) loadData(); });
+  chrome.storage.onChanged.addListener((ch) => { if (ch.fill) loadData().then(scan); });
+
+  // ---------------- your changes on the page ----------------
+  let changes = {};       // key -> value you picked/typed on the page that differs from the panel
+  const skipped = {};     // keys you unticked
+  let filling = false;    // true while we fill, so our own typing isn't counted as yours
+  let savedMsg = '';
+  // Fields that mean the same thing on every site, so a change can be copied to the other sites.
+  const SHARED = ['title', 'description', 'brand', 'size', 'price', 'sku'];
+  const OTHERS = { depop: 'Poshmark & Mercari', poshmark: 'Depop & Mercari', mercari: 'Depop & Poshmark' }[SITE];
+  let share = false;
+  chrome.storage.local.get(['shareChanges']).then((r) => { share = !!r.shareChanges; });
+  function scan() {
+    if (filling || !isSellPage()) return;
+    const next = {};
+    for (const f of FIELDS) {
+      const el = f.find();
+      if (!el) continue;
+      let v;
+      try { v = readOne(f, el); } catch (e) { continue; }
+      if (!v) continue; // empty on the page (or unreadable): nothing to save
+      if (!same(v, data[f.key] || '')) next[f.key] = v;
+    }
+    if (JSON.stringify(next) !== JSON.stringify(changes)) {
+      changes = next;
+      if (Object.keys(next).length) savedMsg = '';
+      render();
+    }
+  }
+  async function saveChanges() {
+    const values = {};
+    for (const [k, v] of Object.entries(changes)) if (!skipped[k]) values[k] = v;
+    if (!Object.keys(values).length) return;
+    await chrome.storage.local.set({ shareChanges: share, pageSave: { site: SITE, sku: data.sku || '', values, share, at: Date.now() } });
+    savedMsg = `Saved ${Object.keys(values).length} change(s) to Crosslist ✓`;
+    render();
+  }
 
   // ---------------- UI (shadow DOM so the site's CSS can't break it) ----------------
   const hostEl = document.createElement('div');
@@ -307,10 +384,17 @@
       .pill { position: fixed; z-index: 2147483647; background: #2f6fde; color: #fff; border: none; border-radius: 14px; padding: 4px 10px;
               box-shadow: 0 2px 8px rgba(0,0,0,.25); font-weight: 600; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .hidden { display: none; }
+      .changes { margin-bottom: 8px; padding: 6px 8px; border-radius: 8px; background: #fff6e0; border: 1px solid #f0d58a; }
+      .changes .ct { font-weight: 600; margin-bottom: 2px; }
+      .changes .row { border-top: none; cursor: pointer; }
+      .changes .row .k { width: 70px; }
+      .changes .row.share { border-top: 1px dashed #e0c070; margin-top: 4px; padding-top: 6px; font-size: 12px; }
+      button.save { background: #d9822b; margin: 6px 0 0; }
       @media (prefers-color-scheme: dark) {
         .box { background: #222326; color: #ececec; border-color: #3a3b40; }
         button { background: #2d3038; color: #ececec; border-color: #44464d; }
         .row { border-color: #34353a; } .row .k { color: #9a9aa0; }
+        .changes { background: #3a3122; border-color: #6b5527; }
       }
     </style>
     <div class="box">
@@ -332,8 +416,9 @@
     hostEl.style.display = isSellPage() ? '' : 'none';
     body.replaceChildren();
     const keys = FIELDS.filter((f) => data[f.key]);
+    renderChanges();
     if (!keys.length) {
-      body.innerHTML = '<div class="muted">Nothing staged for this site yet. Extract an eBay listing in the side panel first.</div>';
+      body.insertAdjacentHTML('beforeend', '<div class="muted">Nothing staged for this site yet. Extract an eBay listing in the side panel first.</div>');
       return;
     }
     const all = document.createElement('button');
@@ -362,9 +447,53 @@
     body.append(note);
   }
 
+  function renderChanges() {
+    const ks = Object.keys(changes);
+    if (!ks.length && !savedMsg) return;
+    const box = document.createElement('div');
+    box.className = 'changes';
+    if (savedMsg) { const m = document.createElement('div'); m.className = 'ok'; m.textContent = savedMsg; box.append(m); }
+    if (ks.length) {
+      const t = document.createElement('div');
+      t.className = 'ct';
+      t.textContent = `You changed ${ks.length} field${ks.length > 1 ? 's' : ''} here`;
+      box.append(t);
+      for (const k of ks) {
+        const row = document.createElement('label');
+        row.className = 'row';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !skipped[k];
+        cb.onchange = () => { skipped[k] = !cb.checked; };
+        const name = document.createElement('span'); name.className = 'k'; name.textContent = labels[k] || k;
+        const v = document.createElement('span'); v.className = 'v';
+        v.textContent = (data[k] ? data[k] + ' → ' : 'new: ') + changes[k];
+        v.title = v.textContent;
+        row.append(cb, name, v);
+        box.append(row);
+      }
+      const shareable = ks.filter((k) => SHARED.includes(k));
+      if (shareable.length) {
+        const row = document.createElement('label');
+        row.className = 'row share';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = share;
+        cb.onchange = () => { share = cb.checked; };
+        const t = document.createElement('span');
+        t.textContent = `Also use ${shareable.map((k) => labels[k] || k).join(', ')} on ${OTHERS}`;
+        row.append(cb, t);
+        box.append(row);
+      }
+      const b = document.createElement('button');
+      b.className = 'main save';
+      b.textContent = 'Save my changes to Crosslist';
+      b.onclick = saveChanges;
+      box.append(b);
+    }
+    body.append(box);
+  }
+
   async function fillField(f) {
     const el = f.find();
     if (!el) { status[f.key] = '✗'; status[f.key + '_err'] = 'Field not on the page (pick the category first?)'; render(); return false; }
+    filling = true;
     try {
       await fillOne(f, el, data[f.key]);
       status[f.key] = '✓';
@@ -372,6 +501,8 @@
       status[f.key] = '✗';
       status[f.key + '_err'] = e.message || String(e);
     }
+    await sleep(300);
+    filling = false;
     render();
     return status[f.key] === '✓';
   }
@@ -382,6 +513,7 @@
       await fillField(f);
       await sleep(150);
     }
+    scan();
   }
 
   // "I know this one" pill when you click into / hover a field we have a value for.
@@ -420,6 +552,16 @@
       if (hit) showPill(hit);
     }, 500);
   }, true);
+
+  // Watch for your own edits on the page (typing, picking from menus).
+  let scanTimer = null;
+  const later = (e) => {
+    if (e && e.composedPath && e.composedPath().includes(hostEl)) return;
+    clearTimeout(scanTimer);
+    scanTimer = setTimeout(scan, 900);
+  };
+  for (const ev of ['input', 'change', 'click', 'keyup']) document.addEventListener(ev, later, true);
+  setInterval(scan, 4000);
 
   // Single-page sites change URL without reloading.
   let lastPath = location.pathname;

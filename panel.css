@@ -92,6 +92,7 @@ a { color: var(--accent); }
 button.small { width: auto; padding: 5px 10px; font-size: 12px; }
 code { font-size: 11px; background: var(--chip); padding: 1px 4px; border-radius: 3px; word-break: break-all; }
 .badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: var(--accent); color: #fff; }
+.badge.you { background: #d9822b; }
 .tip { font-size: 12px; color: var(--muted); background: var(--card); border: 1px dashed var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 10px; }
 .tip.warn { color: var(--bad); }
 .notes { font-size: 12px; background: var(--chip); border-radius: 6px; padding: 6px 8px; margin: 6px 0 10px; }
