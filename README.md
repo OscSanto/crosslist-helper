@@ -27,7 +27,8 @@ After you change any file, click the reload arrow on the extension card in `chro
    - **Fill everything** fills the whole form.
    - Or click into a field. A **✨ I know this** button appears; click it to fill only that field.
    - A ✗ means a field could not be filled. Hover it to see why, then fill that field by hand.
-7. Drag in the photos, check everything, and post.
+7. Photos: on each site's tab, drag the photos into the order you want. Only the first ones the site allows (8 on Depop) are kept; the faded ones are left out. Dropping a photo into a kept spot pushes the last kept photo out. **Download** saves them as `01.jpg`, `02.jpg`… in `Downloads\Crosslist\<item number>\<site>\`.
+8. Drag the photos into the sell page, check everything, and post.
 
 The panel's site tabs show every value, with **Copy** buttons and the site's real options. Fields Claude filled have an **AI** badge. You can edit anything.
 

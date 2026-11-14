@@ -7,6 +7,7 @@ const state = {
   tab: 'ebay',
   autoSwitch: true,
   answerDraft: '',
+  photoOrder: {}, // { depop: [url, ...], ... } per-site photo order chosen by dragging
 };
 const SITES = ['depop', 'poshmark', 'mercari'];
 
@@ -36,7 +37,8 @@ function setStatus(msg, kind) {
 
 // ---------------- storage ----------------
 async function load() {
-  const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch', 'ai']);
+  const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch', 'ai', 'photoOrder']);
+  if (s.photoOrder) state.photoOrder = s.photoOrder;
   if (s.item) { try { state.item = normalize(s.item); } catch (e) { state.item = s.item; } }
   if (s.edits) state.edits = { depop: {}, poshmark: {}, mercari: {}, ...s.edits };
   if (s.tab) state.tab = s.tab;
@@ -52,7 +54,7 @@ let saveTimer;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    chrome.storage.local.set({ item: state.item, edits: state.edits, tab: state.tab, autoSwitch: state.autoSwitch, ai: state.ai });
+    chrome.storage.local.set({ item: state.item, edits: state.edits, tab: state.tab, autoSwitch: state.autoSwitch, ai: state.ai, photoOrder: state.photoOrder });
     publishFill();
   }, 250);
 }
@@ -311,13 +313,14 @@ function fieldValue(pid, f) {
 }
 
 // ---------------- Ask Claude ----------------
-async function downloadPhotos(n) {
+async function downloadPhotos(n, urls, sub) {
   const it = state.item;
-  const folder = 'Crosslist/' + (it.itemId || 'item').replace(/[^\w-]/g, '');
+  urls = (urls || it.images).slice(0, n);
+  const folder = 'Crosslist/' + (it.itemId || 'item').replace(/[^\w-]/g, '') + (sub ? '/' + sub : '');
   const ids = [];
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < urls.length; i++) {
     ids.push(await chrome.downloads.download({
-      url: it.images[i],
+      url: urls[i],
       filename: `${folder}/${String(i + 1).padStart(2, '0')}.jpg`,
       conflictAction: 'overwrite',
       saveAs: false,
@@ -407,21 +410,60 @@ function render() {
   else renderPlatform(c, state.tab);
 }
 
-function photosCard(limit, label) {
+// The photo order for one site: the saved drag order, kept in step with the item's photos.
+function photoOrder(pid) {
+  const imgs = state.item.images || [];
+  if (!pid) return imgs.slice();
+  const saved = (state.photoOrder[pid] || []).filter((u) => imgs.includes(u));
+  return saved.concat(imgs.filter((u) => !saved.includes(u)));
+}
+
+// Photo grid. On a site tab (pid set) the photos can be dragged into a new order.
+// The first `limit` photos are the ones that download; the rest are faded.
+// Dropping a photo into a kept slot pushes the last kept photo out.
+function photosCard(limit, label, pid) {
   const it = state.item;
-  const imgs = it.images || [];
-  const n = limit ? Math.min(limit, imgs.length) : imgs.length;
-  const grid = h('div', { class: 'photos' },
-    imgs.map((src, i) => h('a', { href: src, target: '_blank', class: limit && i >= limit ? 'extra' : '', title: 'Open full size' },
-      h('img', { src, loading: 'lazy', alt: '' }), h('span', {}, i + 1))));
-  return h('div', { class: 'card' },
-    h('h3', {}, `Photos (${imgs.length})`,
-      h('button', { onclick: async (e) => { const b = e.currentTarget; await downloadPhotos(n); b.textContent = 'Saved!'; } }, `Download ${n}`)),
-    grid,
-    h('div', { class: 'note' },
-      `Saves to Downloads\\Crosslist\\${it.itemId || 'item'}\\. ` +
-      (limit && imgs.length > limit ? `${label} allows ${limit} photos; faded ones are left out. ` : '') +
-      'Drag them into the upload box.'));
+  const order = photoOrder(pid);
+  const n = limit ? Math.min(limit, order.length) : order.length;
+  const card = h('div', { class: 'card' });
+  const rerender = () => card.replaceWith(photosCard(limit, label, pid));
+  const move = (from, to) => {
+    if (from === to || from < 0) return;
+    const o = order.slice();
+    const [x] = o.splice(from, 1);
+    o.splice(to, 0, x);
+    state.photoOrder[pid] = o;
+    save();
+    rerender();
+  };
+  let dragFrom = -1;
+  const grid = h('div', { class: 'photos' + (pid ? ' sortable' : '') },
+    order.map((src, i) => {
+      const cell = h('div', {
+        class: 'ph' + (limit && i >= limit ? ' extra' : ''),
+        title: pid ? 'Drag to reorder · double-click to open full size' : 'Double-click to open full size',
+        draggable: pid ? 'true' : null,
+        ondblclick: () => window.open(src, '_blank'),
+      }, h('img', { src, loading: 'lazy', alt: '', draggable: 'false' }), h('span', {}, i + 1));
+      if (pid) {
+        cell.addEventListener('dragstart', (e) => { dragFrom = i; cell.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); });
+        cell.addEventListener('dragend', () => cell.classList.remove('dragging'));
+        cell.addEventListener('dragover', (e) => { e.preventDefault(); cell.classList.add('over'); });
+        cell.addEventListener('dragleave', () => cell.classList.remove('over'));
+        cell.addEventListener('drop', (e) => { e.preventDefault(); move(dragFrom, i); });
+      }
+      return cell;
+    }));
+  const head = h('h3', {}, `Photos (${order.length})`);
+  if (pid && state.photoOrder[pid]) head.append(h('button', { class: 'small', onclick: () => { delete state.photoOrder[pid]; save(); rerender(); } }, 'Reset order'));
+  head.append(h('button', { onclick: async (e) => { const b = e.currentTarget; await downloadPhotos(n, order, pid); b.textContent = 'Saved!'; } }, `Download ${n}`));
+  const folder = ['Downloads', 'Crosslist', it.itemId || 'item'].concat(pid ? [pid] : []).join('\\') + '\\';
+  card.append(head, grid, h('div', { class: 'note' },
+    `Saves to ${folder} as 01.jpg, 02.jpg… in this order. ` +
+    (limit && order.length > limit ? `${label} allows ${limit} photos; faded ones are left out. ` : '') +
+    (pid ? 'Drag a photo onto another spot to move it. ' : '') +
+    'Then drag the files into the upload box.'));
+  return card;
 }
 
 function renderEbay(c) {
@@ -481,7 +523,7 @@ function renderPlatform(c, pid) {
   if (!state.ai) c.append(h('div', { class: 'tip warn' }, 'These are rule-based guesses. Use "Ask Claude" on the eBay tab for better answers.'));
   if (state.ai && state.ai.notes) c.append(h('div', { class: 'notes' }, h('b', {}, 'Claude says: '), state.ai.notes));
 
-  c.append(photosCard(p.maxPhotos, p.name));
+  c.append(photosCard(p.maxPhotos, p.name, pid));
 
   const card = h('div', { class: 'card' });
   const aiKeys = (state.ai && state.ai.keys[pid]) || [];

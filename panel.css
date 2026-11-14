@@ -48,10 +48,13 @@ main { padding: 10px 12px 40px; }
 .toolbar button { flex: 1; }
 
 .photos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-.photos a { position: relative; display: block; aspect-ratio: 1; background: var(--chip); border-radius: 4px; overflow: hidden; }
+.photos .ph { position: relative; display: block; aspect-ratio: 1; background: var(--chip); border-radius: 4px; overflow: hidden; cursor: zoom-in; }
+.photos.sortable .ph { cursor: grab; }
+.photos .ph.dragging { opacity: .2; }
+.photos .ph.over { outline: 2px solid #2f6fde; outline-offset: -2px; }
 .photos img { width: 100%; height: 100%; object-fit: cover; }
 .photos span { position: absolute; left: 2px; top: 2px; background: rgba(0,0,0,.6); color: #fff; font-size: 10px; padding: 0 4px; border-radius: 3px; }
-.photos a.extra { opacity: .35; }
+.photos .ph.extra { opacity: .35; }
 .note { font-size: 11px; color: var(--muted); margin-top: 6px; }
 
 .field { padding: 8px 0; border-top: 1px solid var(--line); }
