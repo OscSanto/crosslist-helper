@@ -1,6 +1,6 @@
 # Crosslist Helper
 
-A Chrome extension. It reads an eBay listing and gets the details ready to copy into Depop, Poshmark and Mercari.
+A Chrome extension. It reads an eBay listing, asks Claude (in your normal chat, no API key) to fill in every field for Depop, Poshmark and Mercari, and then fills in those sites' sell forms for you. You add the photos and click Post yourself.
 
 ## Install (one time)
 
@@ -9,27 +9,44 @@ A Chrome extension. It reads an eBay listing and gets the details ready to copy 
 3. Click **Load unpacked** and pick this folder (`crosslist-helper`).
 4. Click the puzzle-piece icon in the toolbar and pin **Crosslist Helper**.
 
-After you change any file, click the reload arrow on the extension card in `chrome://extensions`.
+After you change any file, click the reload arrow on the extension card in `chrome://extensions`, then reload any open Depop / Poshmark / Mercari tabs.
 
 ## Use
 
 1. Open an eBay item page (`ebay.com/itm/...`).
 2. Click the Crosslist Helper icon. A panel opens on the right.
 3. Click **Extract from this eBay page**.
-4. Use the tabs: **eBay** (everything that was found), **Depop**, **Poshmark**, **Mercari**.
-5. On a site tab:
-   - **Open … sell page** opens that site's listing form.
-   - **Download N photos** saves the photos to `Downloads\Crosslist\<item number>\`. Drag them into the site's upload box.
-   - Click **Copy** next to a field, then paste it into the matching box on the site.
-   - For dropdown fields (condition, color, style…) the panel shows the site's options. The best match is highlighted. Click a different one to change it.
-   - You can edit any field. Edits are saved. **Reset** undoes them.
-6. With **auto-switch** on, the panel jumps to the matching tab when you switch to a Depop, Poshmark or Mercari browser tab.
+4. **Ask Claude** (eBay tab):
+   1. Click **Copy prompt (and save photos)**. The photos are saved to `Downloads\Crosslist\<item number>\`.
+   2. Paste the prompt into a Claude chat:
+      - **claude.ai**: pick Haiku in the model menu and drag the photos into the message.
+      - **Claude Code**: paste it as is. It opens the photos from the folder itself.
+   3. Copy Claude's whole reply, paste it into the panel, and click **Use this answer**.
+5. Open a site's sell page (the **Open … sell page** button on each tab).
+6. A **Crosslist Helper** box appears in the bottom-right corner of the page:
+   - **Fill everything** fills the whole form.
+   - Or click into a field. A **✨ I know this** button appears; click it to fill only that field.
+   - A ✗ means a field could not be filled. Hover it to see why, then fill that field by hand.
+7. Drag in the photos, check everything, and post.
 
-The last item you extracted stays in the panel until you extract a new one.
+The panel's site tabs show every value, with **Copy** buttons and the site's real options. Fields Claude filled have an **AI** badge. You can edit anything.
+
+## What gets auto-filled
+
+| Site | Auto-filled | By hand |
+|---|---|---|
+| Depop | description, category, brand, condition, size, colors, type, fit, body fit, length, material, occasion, SKU, source, age, style, price, package size | photos |
+| Poshmark | title, description, category, subcategory, size, condition, brand, colors, style tags, listing SKU, listing price | photos; the price pop-up (Smart Sell, original price, then **Done**) |
+| Mercari | title, description, brand, price | photos, category, condition, size, color, shipping (Mercari's form is not mapped yet) |
+
+Each item gets a private **SKU** (`CL-` + the eBay item number) on Depop and Poshmark. It lets you find the same item on every site when it sells.
 
 ## Change the rules
 
-All site rules are in `mappings.js`: condition names, color lists, category guesses, Depop styles, character limits and photo limits. If a site renames an option, change it there.
+- `site-options.js`: the real option lists from each site's form (categories, conditions, colors, styles, materials…). If a site renames an option, change it here.
+- `mappings.js`: the rule-based guesses used before Claude answers.
+- `ai.js`: the prompt sent to Claude and how the reply is read.
+- `filler.js`: how each site's form is filled.
 
 ## Files
 
@@ -38,5 +55,8 @@ All site rules are in `mappings.js`: condition names, color lists, category gues
 | `manifest.json` | Extension settings and permissions |
 | `background.js` | Opens the side panel when you click the icon |
 | `extractor.js` | Runs on the eBay page and reads title, price, condition, item specifics, photos, category path |
-| `panel.html/css/js` | The side panel: description download, tabs, copy buttons, photo download |
-| `mappings.js` | eBay → Depop / Poshmark / Mercari conversion rules |
+| `panel.html/css/js` | The side panel: tabs, Ask Claude, copy buttons, photo download |
+| `site-options.js` | Depop / Poshmark / Mercari option lists |
+| `mappings.js` | eBay → site conversion rules (fallback) |
+| `ai.js` | Builds the Claude prompt and reads Claude's JSON reply |
+| `filler.js` | Runs on the sell pages: the corner box and the auto-fill |

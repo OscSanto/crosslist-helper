@@ -19,6 +19,16 @@
     "*://*.ebay.co.uk/*",
     "*://*.ebay.com.au/*",
     "*://*.ebaydesc.com/*",
-    "*://*.ebayimg.com/*"
+    "*://*.ebayimg.com/*",
+    "*://*.depop.com/*",
+    "*://*.poshmark.com/*",
+    "*://*.mercari.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://*.depop.com/*", "*://*.poshmark.com/*", "*://*.mercari.com/*"],
+      "js": ["filler.js"],
+      "run_at": "document_idle"
+    }
   ]
 }
