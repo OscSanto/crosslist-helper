@@ -425,6 +425,11 @@
   let lastPath = location.pathname;
   setInterval(() => { if (location.pathname !== lastPath) { lastPath = location.pathname; render(); } }, 1000);
 
-  document.documentElement.append(hostEl);
+  // The sites rebuild the page after it loads, which deletes anything an extension added.
+  // Put the box back whenever that happens.
+  const attach = () => { if (!hostEl.isConnected) (document.body || document.documentElement).append(hostEl); };
+  attach();
+  new MutationObserver(attach).observe(document.documentElement, { childList: true, subtree: true });
+  setInterval(attach, 1000);
   loadData();
 })();

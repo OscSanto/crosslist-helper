@@ -37,12 +37,13 @@ function setStatus(msg, kind) {
 // ---------------- storage ----------------
 async function load() {
   const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch', 'ai']);
-  if (s.item) state.item = s.item;
+  if (s.item) { try { state.item = normalize(s.item); } catch (e) { state.item = s.item; } }
   if (s.edits) state.edits = { depop: {}, poshmark: {}, mercari: {}, ...s.edits };
   if (s.tab) state.tab = s.tab;
   if (s.ai) state.ai = s.ai;
   if (typeof s.autoSwitch === 'boolean') state.autoSwitch = s.autoSwitch;
   $('#autoSwitch').checked = state.autoSwitch;
+  $('#ver').textContent = 'v' + chrome.runtime.getManifest().version;
   if (state.item) setStatus('Loaded last item: ' + state.item.title.slice(0, 60), '');
   render();
   publishFill();
