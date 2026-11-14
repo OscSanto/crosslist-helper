@@ -20,6 +20,13 @@
   const toList = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map((s) => String(s).trim()).filter(Boolean);
   const $ = (s, root = document) => root.querySelector(s);
 
+  // Same size, different spelling: "2XL" = "XXL", "3XL" = "XXXL", "2XS" = "XXS", "X-Large" = "XL".
+  function canonSize(n) {
+    n = n.replace(/^(x*)(extra)?(large|small)$/, (m, xs, extra, w) => (xs || '') + (extra ? 'x' : '') + (w === 'large' ? 'l' : 's'));
+    const m = n.match(/^(x{2,})(l|s)$/);
+    return m ? m[1].length + 'x' + m[2] : n;
+  }
+
   function bestMatch(items, wanted, textOf = (x) => x.textContent) {
     const w = norm(wanted);
     if (!w) return null;
@@ -28,7 +35,7 @@
       const t = norm(textOf(it));
       if (!t) continue;
       let s = 0;
-      if (t === w) s = 5;
+      if (t === w || canonSize(t) === canonSize(w)) s = 5;
       else if (t.startsWith(w)) s = 4;          // "Medium" -> "MediumUnder 1lb"
       else if (t.endsWith(w) && w.length >= 2) s = 3; // "32" -> "Waist 32"
       else if (w.startsWith(t) && t.length > 2) s = 2;
@@ -302,8 +309,8 @@
   // Does the page value mean the same as the staged value?
   // ("Jeans" vs "Men > Bottoms > Jeans", "Medium" vs "MediumUnder 1lb", "25" vs "25.00")
   function same(pageV, stagedV) {
-    const a = toList(pageV).map(norm).filter(Boolean).sort();
-    const b = toList(stagedV).map(norm).filter(Boolean).sort();
+    const a = toList(pageV).map((x) => canonSize(norm(x))).filter(Boolean).sort();
+    const b = toList(stagedV).map((x) => canonSize(norm(x))).filter(Boolean).sort();
     if (a.join() === b.join()) return true;
     if (/^\$?[\d.,]+$/.test(String(pageV).trim()) && parseFloat(String(pageV).replace(/[$,]/g, '')) === parseFloat(String(stagedV).replace(/[$,]/g, ''))) return true;
     if (a.length !== b.length) return false;

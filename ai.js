@@ -31,7 +31,7 @@ ${desc || '(none)'}
 
 RULES
 1. For every field that has an option list below, copy one option EXACTLY as written. Use "" if nothing fits. Never invent options.
-2. Don't make up facts. If a photo and the eBay data disagree, trust the photo (for example the size tag) and say so in "notes".
+2. Write sizes the way each site's list spells them (for example XXL vs 2XL). Don't make up facts. If a photo and the eBay data disagree, trust the photo (for example the size tag) and say so in "notes".
 3. Titles: max 80 characters. Brand + item type + key details (color, style, fit) + size.
 4. Descriptions: plain text, friendly, honest about any flaws, never mention eBay.
    - Depop: max 1000 characters. The first line is a short title. End with up to 5 hashtags.
@@ -111,19 +111,19 @@ function answerToEdits(a) {
   const placeholder = /^(up to \d|retail price when new|dept > |anything i should|best guess)/i;
   const put = (site, key, v) => { const s = j(v).trim(); if (s && !placeholder.test(s)) out[site][key] = s; };
   const d = a.depop || {};
-  put('depop', 'description', d.description); put('depop', 'category', d.category); put('depop', 'brand', d.brand);
+  put('depop', 'description', d.description && tidyText(d.description)); put('depop', 'category', d.category); put('depop', 'brand', d.brand);
   put('depop', 'condition', d.condition); put('depop', 'size', d.size); put('depop', 'color', d.colors);
   put('depop', 'attr_type', d.type); put('depop', 'attr_fit', d.fit); put('depop', 'attr_bodyfit', d.body_fit);
   put('depop', 'attr_length', d.length); put('depop', 'material', d.material); put('depop', 'occasion', d.occasion);
   put('depop', 'source', d.source); put('depop', 'age', d.age); put('depop', 'style', d.styles);
   put('depop', 'price', d.price); put('depop', 'package', d.package_size); put('depop', 'sku', d.sku);
   const p = a.poshmark || {};
-  put('poshmark', 'title', p.title); put('poshmark', 'description', p.description); put('poshmark', 'category', p.category);
+  put('poshmark', 'title', p.title); put('poshmark', 'description', p.description && tidyText(p.description)); put('poshmark', 'category', p.category);
   put('poshmark', 'subcategory', p.subcategory); put('poshmark', 'size', p.size); put('poshmark', 'condition', p.condition);
   put('poshmark', 'brand', p.brand); put('poshmark', 'color', p.colors); put('poshmark', 'styleTags', p.style_tags);
   put('poshmark', 'originalPrice', p.original_price); put('poshmark', 'price', p.price); put('poshmark', 'sku', p.sku);
   const m = a.mercari || {};
-  put('mercari', 'title', m.title); put('mercari', 'description', m.description); put('mercari', 'category', m.category);
+  put('mercari', 'title', m.title); put('mercari', 'description', m.description && tidyText(m.description)); put('mercari', 'category', m.category);
   put('mercari', 'brand', m.brand); put('mercari', 'condition', m.condition); put('mercari', 'size', m.size);
   put('mercari', 'color', m.color); put('mercari', 'price', m.price);
   return out;

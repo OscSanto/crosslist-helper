@@ -42,6 +42,31 @@ const PLATFORMS = {
 };
 
 // ---------- Condition ----------
+// Clean up text copied from eBay templates or written by Claude:
+// "• • Size L", "•" on its own line, ". . .", "Great shirt....", "⭐⭐⭐⭐" style separators.
+function tidyText(text) {
+  const B = '•·●◦▪▫■□►▶➤✔✓★☆⭐*';
+  const bullet = new RegExp(String.raw`^[\s${B}\-–—]*[${B}]+[\s${B}\-–—]*`);
+  const junk = new RegExp(String.raw`^[\s${B}.…\-–—_=~|]+$`); // a line that is only bullets / dots / dashes
+  let lines = String(text || '')
+    .replace(/[\u200b-\u200d\u2060\ufeff]/g, '') // invisible characters eBay templates leave behind
+    .split('\n')
+    .map((l) => {
+      l = l.replace(/\s+/g, ' ').trim();
+      if (!l) return '';
+      if (junk.test(l)) return null;
+      if (bullet.test(l)) l = l.replace(bullet, '• ');            // one bullet per line, at the start
+      l = l.replace(new RegExp(String.raw`\s*[${B}]\s*[${B}\s]*[${B}]\s*`, 'g'), ' • '); // "a • • b" -> "a • b"
+      l = l.replace(/(\s*\.\s*){4,}/g, '… ').replace(/(\.\s*){3}/g, '… ').replace(/\.{2}(?!\.)/g, '.'); // dots
+      l = l.replace(/…\s*$/, '…').replace(/\s+([.,!?])/g, '$1').trim();
+      return junk.test(l) ? null : l;
+    })
+    .filter((l) => l !== null);
+  // A single bulleted paragraph doesn't need its bullet.
+  if (lines.filter((l) => l.startsWith('• ')).length === 1) lines = lines.map((l) => l.replace(/^• /, ''));
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function conditionGrade(text) {
   const s = (text || '').toLowerCase();
   if (/new with tags|new with box|brand new|new in box/.test(s)) return 'nwt';

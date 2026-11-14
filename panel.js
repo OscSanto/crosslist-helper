@@ -125,7 +125,7 @@ async function fetchDescription(url) {
 
 function cleanDescription(text) {
   const ebayOnly = /\bebay\b|feedback|\bbid(s|ding|der)?\b|auction|best offer|combined shipping|positive rating|watch ?list/i;
-  return (text || '').split('\n').filter((l) => !ebayOnly.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return tidyText((text || '').split('\n').filter((l) => !ebayOnly.test(l)).join('\n'));
 }
 
 function normalize(raw) {
