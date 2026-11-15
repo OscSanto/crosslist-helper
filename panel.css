@@ -86,6 +86,18 @@ a { color: var(--accent); }
 
 /* Ask Claude + auto-fill */
 .card.ai { border-color: var(--accent); }
+.payout .opts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; margin-bottom: 8px; }
+.payout .opt { display: inline-flex; align-items: center; gap: 4px; }
+.payout input.ship { width: 60px; padding: 2px 4px; }
+.payout table.keep { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.payout th, .payout td { text-align: right; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.payout th:first-child, .payout td:first-child { text-align: left; }
+.payout th { color: var(--muted); font-weight: 600; }
+.payout tr.cur td { font-weight: 700; }
+.payout tr.best td:last-child { color: #1f8a4c; }
+.payout .detail { margin-top: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.payout .line { display: flex; justify-content: space-between; padding: 1px 0; }
+.payout .line.total { border-top: 1px solid var(--line); margin-top: 3px; padding-top: 3px; font-weight: 700; }
 .steps { margin: 0; padding-left: 18px; }
 .steps li { margin-bottom: 8px; }
 .steps textarea { min-height: 90px; margin: 4px 0; }

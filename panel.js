@@ -8,6 +8,7 @@ const state = {
   autoSwitch: true,
   answerDraft: '',
   photoOrder: {}, // { depop: [url, ...], ... } per-site photo order chosen by dragging
+  fees: { ship: 5, buyerPaysShip: true, boost: false }, // payout calculator settings
   mine: { depop: {}, poshmark: {}, mercari: {} }, // values YOU set (panel or sell page); beat eBay and Claude
   library: {}, // { <eBay item id>: { mine, title, at } } your saved changes for every item, kept across re-extracts
 };
@@ -40,7 +41,8 @@ function setStatus(msg, kind) {
 
 // ---------------- storage ----------------
 async function load() {
-  const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch', 'ai', 'photoOrder', 'mine', 'library']);
+  const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch', 'ai', 'photoOrder', 'mine', 'library', 'fees']);
+  if (s.fees) state.fees = { ...state.fees, ...s.fees };
   if (s.mine) state.mine = { ...emptyMine(), ...s.mine };
   if (s.library) state.library = s.library;
   if (s.photoOrder) state.photoOrder = s.photoOrder;
@@ -64,7 +66,7 @@ function save() {
       if (any) state.library[state.item.itemId] = { mine: state.mine, title: state.item.title, at: Date.now() };
       else delete state.library[state.item.itemId];
     }
-    chrome.storage.local.set({ item: state.item, edits: state.edits, tab: state.tab, autoSwitch: state.autoSwitch, ai: state.ai, photoOrder: state.photoOrder, mine: state.mine, library: state.library });
+    chrome.storage.local.set({ item: state.item, edits: state.edits, tab: state.tab, autoSwitch: state.autoSwitch, ai: state.ai, photoOrder: state.photoOrder, mine: state.mine, library: state.library, fees: state.fees });
     publishFill();
   }, 250);
 }
@@ -538,6 +540,7 @@ function renderEbay(c) {
     h('div', { class: 'note' }, h('a', { href: it.url, target: '_blank' }, 'Open eBay listing'),
       ` · item ${it.itemId} · SKU ${it.sku}`)));
 
+  c.append(payoutCard('ebay'));
   c.append(askClaudeCard());
   c.append(photosCard(0));
 
@@ -583,6 +586,8 @@ function renderPlatform(c, pid) {
     `On ${p.name}'s sell page a "Crosslist Helper" box appears in the corner. Click "Fill everything", or click into a field and use the ✨ button. ` +
     (pid === 'mercari' ? 'Mercari only fills title, description, brand and price for now.' : 'You still add photos and click Post yourself.')));
 
+  c.append(payoutCard(pid));
+
   if (!state.ai) c.append(h('div', { class: 'tip warn' }, 'These are rule-based guesses. Use "Ask Claude" on the eBay tab for better answers.'));
   if (state.ai && state.ai.notes) c.append(h('div', { class: 'notes' }, h('b', {}, 'Claude says: '), state.ai.notes));
 
@@ -616,6 +621,7 @@ function fieldRow(pid, f, value, fromAI, vals) {
     const wasMine = f.key in state.mine[pid];
     state.mine[pid][f.key] = input.value;
     save(); refresh();
+    if (f.key === 'price') refreshPayout();
     if (rerender || !wasMine) render(); // show the "You" badge
   };
   input.addEventListener('input', () => commit(false));
@@ -656,6 +662,71 @@ function fieldRow(pid, f, value, fromAI, vals) {
     input,
     f.hint ? h('div', { class: 'hint' }, f.hint) : null,
     optionsBlock);
+}
+
+// ---------------- payout calculator ----------------
+// The price each site's tab is set to (eBay: the eBay price).
+function sitePrice(site) {
+  if (site === 'ebay') return parseFloat(String(state.item.price || '').replace(/[^0-9.]/g, '')) || 0;
+  const f = buildFields(site, state.item).find((x) => x.key === 'price');
+  return f ? parseFloat(String(fieldValue(site, f)).replace(/[^0-9.]/g, '')) || 0 : 0;
+}
+
+function payoutCard(current) {
+  const st = state.fees;
+  const card = h('div', { class: 'card payout' });
+  const redo = () => { save(); refreshPayout(); };
+  const shipIn = h('input', { type: 'number', min: '0', step: '0.25', value: st.ship, class: 'ship' });
+  shipIn.addEventListener('input', () => { st.ship = parseFloat(shipIn.value) || 0; save(); updateNumbers(); });
+  shipIn.addEventListener('change', redo);
+  const box = (key, text) => {
+    const cb = h('input', { type: 'checkbox' });
+    cb.checked = !!st[key];
+    cb.addEventListener('change', () => { st[key] = cb.checked; redo(); });
+    return h('label', { class: 'opt' }, cb, ' ', text);
+  };
+
+  const order = ['depop', 'poshmark', 'mercari', 'ebay'];
+  const table = h('table', { class: 'keep' });
+  const detail = h('div', { class: 'detail' });
+  function updateNumbers() {
+    const args = { ship: st.ship, buyerPaysShip: st.buyerPaysShip, boost: st.boost };
+    table.replaceChildren(h('tr', {}, h('th', {}, 'Site'), h('th', {}, 'Price'), h('th', {}, 'You keep')));
+    let best = null;
+    const rows = order.map((site) => {
+      const price = sitePrice(site);
+      const r = price ? FEES[site].calc({ ...args, price }) : null;
+      if (r && (!best || r.keep > best.keep)) best = { site, keep: r.keep };
+      return { site, price, r };
+    });
+    for (const { site, price, r } of rows) {
+      table.append(h('tr', { class: (site === current ? 'cur' : '') + (best && best.site === site ? ' best' : '') },
+        h('td', {}, FEES[site].name), h('td', {}, price ? money(price) : '—'), h('td', {}, r ? money(r.keep) : 'set a price')));
+    }
+    const mine = rows.find((x) => x.site === current);
+    detail.replaceChildren();
+    if (mine && mine.r) {
+      detail.append(h('div', { class: 'line' }, h('span', {}, 'Price'), h('span', {}, money(mine.price))));
+      for (const [label, amt] of mine.r.lines) detail.append(h('div', { class: 'line' }, h('span', {}, label), h('span', {}, money(amt))));
+      detail.append(h('div', { class: 'line total' }, h('span', {}, 'You keep'), h('span', {}, money(mine.r.keep))));
+      detail.append(h('div', { class: 'note' }, mine.r.note));
+    }
+  }
+  updateNumbers();
+
+  card.append(
+    h('h3', {}, `What you keep${current === 'ebay' ? '' : ' on ' + FEES[current].name}`),
+    h('div', { class: 'opts' },
+      h('label', { class: 'opt' }, 'Label costs $', shipIn),
+      box('buyerPaysShip', 'Buyer pays shipping'),
+      box('boost', 'Boost on Depop (+12%)')),
+    table, detail,
+    h('div', { class: 'note' }, 'Prices come from each tab\'s Price field. Sales tax left out. Fee rules are in fees.js; check the sites\' fee pages, they change often.'));
+  return card;
+}
+function refreshPayout() {
+  const old = document.querySelector('.card.payout');
+  if (old && state.item) old.replaceWith(payoutCard(state.tab));
 }
 
 // ---------------- tabs + auto-switch ----------------
