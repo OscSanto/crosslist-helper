@@ -34,6 +34,12 @@ After you change any file, click the reload arrow on the extension card in `chro
 
 The panel's site tabs show every value, with **Copy** buttons and the site's real options. Fields Claude filled have an **AI** badge. You can edit anything.
 
+## What you keep
+
+Every tab has a **What you keep** card. It shows your payout on Depop, Poshmark, Mercari and eBay at the price set on each tab, and the fee breakdown for the current site. Set what the shipping label costs, whether the buyer pays shipping, and whether the Depop listing is boosted. The best payout is shown in green.
+
+Fee rules (US, Nov 2026) are in `fees.js`: Depop 3.3% + $0.45 processing (+12% if boosted), Poshmark $2.95 under $15 or 20%, Mercari 10%, eBay 13.6% + $0.40 per order. Sales tax is left out. The sites change their fees often, so check their fee pages and edit `fees.js` when they do.
+
 ## What gets auto-filled
 
 | Site | Auto-filled | By hand |
@@ -61,5 +67,6 @@ Each item gets a private **SKU** (`CL-` + the eBay item number) on Depop and Pos
 | `panel.html/css/js` | The side panel: tabs, Ask Claude, copy buttons, photo download |
 | `site-options.js` | Depop / Poshmark / Mercari option lists |
 | `mappings.js` | eBay → site conversion rules (fallback) |
+| `fees.js` | Each site's fees, for the What you keep card |
 | `ai.js` | Builds the Claude prompt and reads Claude's JSON reply |
 | `filler.js` | Runs on the sell pages: the corner box and the auto-fill |
