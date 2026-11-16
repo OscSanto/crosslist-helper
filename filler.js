@@ -15,6 +15,9 @@
 
   // ---------------- helpers ----------------
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // A random 0.4–1.2 s wait between fields and photos, so filling isn't instant
+  // and doesn't follow a fixed rhythm.
+  const pause = () => sleep(400 + Math.random() * 800);
   const norm = (s) => (s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
   const shown = (el) => !!el && el.getClientRects().length > 0;
   const toList = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map((s) => String(s).trim()).filter(Boolean);
@@ -562,6 +565,7 @@
     filling = true;
     try {
       for (let i = 0; i < todo.length; i++) {
+        if (i) await pause();
         setSt(`${i + 1}/${todo.length}…`);
         const file = await photoFile(todo[i], have + i);
         const input = document.getElementById('upload-input__input');
@@ -587,7 +591,7 @@
     for (const f of FIELDS) {
       if (!data[f.key]) continue;
       await fillField(f);
-      await sleep(150);
+      await pause();
     }
     scan();
   }
