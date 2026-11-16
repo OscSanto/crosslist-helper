@@ -326,10 +326,12 @@
   // ---------------- data from the side panel ----------------
   let data = {};
   let labels = {};
+  let photos = []; // photo URLs in your order, already cut to the site's limit
   async function loadData() {
     const s = await chrome.storage.local.get(['fill']);
     data = (s.fill && s.fill[SITE]) || {};
     labels = (s.fill && s.fill._labels && s.fill._labels[SITE]) || {};
+    photos = (s.fill && s.fill._photos && s.fill._photos[SITE]) || [];
     render();
   }
   chrome.storage.onChanged.addListener((ch) => { if (ch.fill) loadData().then(scan); });
@@ -433,6 +435,19 @@
     all.textContent = 'Fill everything';
     all.onclick = fillAll;
     body.append(all);
+    if (SITE === 'depop' && photos.length) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const k = document.createElement('span'); k.className = 'k'; k.textContent = 'Photos';
+      const v = document.createElement('span'); v.className = 'v'; v.textContent = `${photos.length} in your order`;
+      const st = document.createElement('span'); st.textContent = status.photos || '';
+      st.className = /✓/.test(st.textContent) ? 'ok' : /✗/.test(st.textContent) ? 'bad' : 'muted';
+      if (status.photos_err) st.title = status.photos_err;
+      const b = document.createElement('button'); b.textContent = 'Add';
+      b.onclick = () => addPhotos(false);
+      row.append(k, v, st, b);
+      body.append(row);
+    }
     for (const f of keys) {
       const row = document.createElement('div');
       row.className = 'row';
@@ -450,7 +465,9 @@
     note.className = 'muted';
     note.textContent = SITE === 'mercari'
       ? 'Mercari: only title, description, brand and price fill automatically for now. Use Copy in the side panel for the rest.'
-      : 'Review everything, add photos, then post yourself. Hover a ✗ to see why it failed.';
+      : SITE === 'depop'
+        ? 'Review everything, then post yourself. Hover a ✗ to see why it failed.'
+        : 'Review everything, add photos, then post yourself. Hover a ✗ to see why it failed.';
     body.append(note);
   }
 
@@ -514,7 +531,59 @@
     return status[f.key] === '✓';
   }
 
+  // ---------------- photos (Depop) ----------------
+  // Depop has one file input. We put one photo in it at a time and wait for
+  // its tile to appear, so the photos land in your order (first = cover).
+  const DEPOP_MAX = 8;
+  const photoTiles = () => document.querySelectorAll('button[title="Delete image"]').length;
+
+  async function photoFile(url, i) {
+    const r = await chrome.runtime.sendMessage({ type: 'crosslist:photo', url });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'Could not get the eBay photo');
+    const bin = atob(r.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+    const ext = r.type === 'image/png' ? 'png' : 'jpg';
+    return new File([bytes], `${String(i + 1).padStart(2, '0')}.${ext}`, { type: r.type });
+  }
+
+  async function waitFor(test, ms) {
+    for (const end = Date.now() + ms; Date.now() < end; await sleep(250)) if (test()) return true;
+    return false;
+  }
+
+  // fromFillAll: skip if the page already has photos, so Fill everything twice doesn't double them.
+  async function addPhotos(fromFillAll) {
+    const setSt = (s, err) => { status.photos = s; status.photos_err = err || ''; render(); };
+    const have = photoTiles();
+    if (fromFillAll && have) { setSt('✓ already there'); return; }
+    const todo = photos.slice(0, Math.max(0, DEPOP_MAX - have));
+    if (!todo.length) { setSt('✗', `Depop already has ${have} photos (the most it takes).`); return; }
+    filling = true;
+    try {
+      for (let i = 0; i < todo.length; i++) {
+        setSt(`${i + 1}/${todo.length}…`);
+        const file = await photoFile(todo[i], have + i);
+        const input = document.getElementById('upload-input__input');
+        if (!input) throw new Error('The photo box is not on the page.');
+        const before = photoTiles();
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        if (!(await waitFor(() => photoTiles() > before, 20000))) throw new Error(`Photo ${i + 1} didn't appear on Depop. Try Add again.`);
+      }
+      setSt(`✓ ${todo.length}`);
+    } catch (e) {
+      setSt('✗', e.message || String(e));
+    } finally {
+      filling = false;
+    }
+  }
+
   async function fillAll() {
+    if (SITE === 'depop' && photos.length) await addPhotos(true);
     for (const f of FIELDS) {
       if (!data[f.key]) continue;
       await fillField(f);

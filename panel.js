@@ -74,10 +74,11 @@ function save() {
 // Values the auto-fill script on Depop/Poshmark/Mercari reads.
 function publishFill() {
   if (!state.item) { chrome.storage.local.set({ fill: {} }); return; }
-  const fill = { _labels: {} };
+  const fill = { _labels: {}, _photos: {} };
   for (const pid of SITES) {
     fill[pid] = {};
     fill._labels[pid] = {};
+    fill._photos[pid] = photoOrder(pid).slice(0, PLATFORMS[pid].maxPhotos); // in your dragged order
     for (const f of buildFields(pid, state.item)) {
       const v = fieldValue(pid, f);
       fill._labels[pid][f.key] = f.label;
@@ -527,7 +528,7 @@ function photosCard(limit, label, pid) {
     `Saves to ${folder} as 01.jpg, 02.jpg… in this order. ` +
     (limit && order.length > limit ? `${label} allows ${limit} photos; faded ones are left out. ` : '') +
     (pid ? 'Drag a photo onto another spot to move it. ' : '') +
-    'Then drag the files into the upload box.'));
+    (pid === 'depop' ? 'On Depop there is no need to download: Fill everything uploads them for you.' : 'Then drag the files into the upload box.')));
   return card;
 }
 
@@ -584,7 +585,9 @@ function renderPlatform(c, pid) {
 
   c.append(h('div', { class: 'tip' },
     `On ${p.name}'s sell page a "Crosslist Helper" box appears in the corner. Click "Fill everything", or click into a field and use the ✨ button. ` +
-    (pid === 'mercari' ? 'Mercari only fills title, description, brand and price for now.' : 'You still add photos and click Post yourself.')));
+    (pid === 'mercari' ? 'Mercari only fills title, description, brand and price for now.'
+      : pid === 'depop' ? 'Fill everything on Depop also uploads the photos, in the order below. You still click Post yourself.'
+        : 'You still add photos and click Post yourself.')));
 
   c.append(payoutCard(pid));
 

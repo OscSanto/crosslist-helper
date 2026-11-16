@@ -1,6 +1,6 @@
 # Crosslist Helper
 
-A Chrome extension. It reads an eBay listing, asks Claude (in your normal chat, no API key) to fill in every field for Depop, Poshmark and Mercari, and then fills in those sites' sell forms for you. You add the photos and click Post yourself.
+A Chrome extension. It reads an eBay listing, asks Claude (in your normal chat, no API key) to fill in every field for Depop, Poshmark and Mercari, and then fills in those sites' sell forms for you. On Depop it uploads the photos too. You click Post yourself.
 
 ## Install (one time)
 
@@ -28,7 +28,7 @@ After you change any file, click the reload arrow on the extension card in `chro
    - Or click into a field. A **✨ I know this** button appears; click it to fill only that field.
    - A ✗ means a field could not be filled. Hover it to see why, then fill that field by hand.
 7. Photos: on each site's tab, drag the photos into the order you want. Only the first ones the site allows (8 on Depop) are kept; the faded ones are left out. Dropping a photo into a kept spot pushes the last kept photo out. **Download** saves them as `01.jpg`, `02.jpg`… in `Downloads\Crosslist\<item number>\<site>\`.
-8. Drag the photos into the sell page, check everything, and post.
+8. **Depop:** **Fill everything** in the corner box uploads the photos first, in your order (the first is the cover), then fills the fields. It skips photos if the page already has some; **Add** next to Photos adds them anyway, up to 8. **Poshmark / Mercari:** drag the downloaded photos into the sell page. Then check everything and post.
 
 **Your own changes.** If you change or add a value on the sell page yourself, the corner box notices it and lists it under **You changed N fields here** (old value → new value). Untick anything you don't want, then click **Save my changes to Crosslist**. If you changed the title, description, brand, size, price or SKU, you can tick **Also use … on the other sites** to copy those to the other two sites too (titles and descriptions are cut to each site's limit). The box remembers that choice. Saved values get a **You** badge in the panel and win over both eBay and Claude. They are kept with that eBay item, so if you extract the same listing again later they come back. Edits you type in the panel are saved the same way. **Undo** next to a **You** badge goes back to the eBay/Claude value. (Poshmark style tags are not tracked.)
 
@@ -44,7 +44,7 @@ Fee rules (US, Nov 2026) are in `fees.js`: Depop 3.3% + $0.45 processing (+12% i
 
 | Site | Auto-filled | By hand |
 |---|---|---|
-| Depop | description, category, brand, condition, size, colors, type, fit, body fit, length, material, occasion, SKU, source, age, style, price, package size | photos |
+| Depop | photos (up to 8, your order), description, category, brand, condition, size, colors, type, fit, body fit, length, material, occasion, SKU, source, age, style, price, package size | |
 | Poshmark | title, description, category, subcategory, size, condition, brand, colors, style tags, listing SKU, listing price | photos; the price pop-up (Smart Sell, original price, then **Done**) |
 | Mercari | title, description, brand, price | photos, category, condition, size, color, shipping (Mercari's form is not mapped yet) |
 
@@ -62,11 +62,11 @@ Each item gets a private **SKU** (`CL-` + the eBay item number) on Depop and Pos
 | File | What it does |
 |---|---|
 | `manifest.json` | Extension settings and permissions |
-| `background.js` | Opens the side panel when you click the icon |
+| `background.js` | Opens the side panel when you click the icon; fetches eBay photos for the Depop upload |
 | `extractor.js` | Runs on the eBay page and reads title, price, condition, item specifics, photos, category path |
 | `panel.html/css/js` | The side panel: tabs, Ask Claude, copy buttons, photo download |
 | `site-options.js` | Depop / Poshmark / Mercari option lists |
 | `mappings.js` | eBay → site conversion rules (fallback) |
 | `fees.js` | Each site's fees, for the What you keep card |
 | `ai.js` | Builds the Claude prompt and reads Claude's JSON reply |
-| `filler.js` | Runs on the sell pages: the corner box and the auto-fill |
+| `filler.js` | Runs on the sell pages: the corner box and the auto-fill (and Depop photo upload) |
