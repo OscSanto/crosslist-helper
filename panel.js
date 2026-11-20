@@ -11,6 +11,7 @@ const state = {
   fees: { ship: 5, buyerPaysShip: true, boost: false }, // payout calculator settings
   mine: { depop: {}, poshmark: {}, mercari: {} }, // values YOU set (panel or sell page); beat eBay and Claude
   library: {}, // { <eBay item id>: { mine, title, at } } your saved changes for every item, kept across re-extracts
+  photoDirs: {}, // { '<item id>/<site>': { dir, sig } } where each site's photos were saved, and in what order
 };
 const emptyMine = () => ({ depop: {}, poshmark: {}, mercari: {} });
 const SITES = ['depop', 'poshmark', 'mercari'];
@@ -41,10 +42,11 @@ function setStatus(msg, kind) {
 
 // ---------------- storage ----------------
 async function load() {
-  const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch', 'ai', 'photoOrder', 'mine', 'library', 'fees']);
+  const s = await chrome.storage.local.get(['item', 'edits', 'tab', 'autoSwitch', 'ai', 'photoOrder', 'mine', 'library', 'fees', 'photoDirs']);
   if (s.fees) state.fees = { ...state.fees, ...s.fees };
   if (s.mine) state.mine = { ...emptyMine(), ...s.mine };
   if (s.library) state.library = s.library;
+  if (s.photoDirs) state.photoDirs = s.photoDirs;
   if (s.photoOrder) state.photoOrder = s.photoOrder;
   if (s.item) { try { state.item = normalize(s.item); } catch (e) { state.item = s.item; } }
   if (s.edits) state.edits = { depop: {}, poshmark: {}, mercari: {}, ...s.edits };
@@ -66,7 +68,7 @@ function save() {
       if (any) state.library[state.item.itemId] = { mine: state.mine, title: state.item.title, at: Date.now() };
       else delete state.library[state.item.itemId];
     }
-    chrome.storage.local.set({ item: state.item, edits: state.edits, tab: state.tab, autoSwitch: state.autoSwitch, ai: state.ai, photoOrder: state.photoOrder, mine: state.mine, library: state.library, fees: state.fees });
+    chrome.storage.local.set({ item: state.item, edits: state.edits, tab: state.tab, autoSwitch: state.autoSwitch, ai: state.ai, photoOrder: state.photoOrder, mine: state.mine, library: state.library, fees: state.fees, photoDirs: state.photoDirs });
     publishFill();
   }, 250);
 }
@@ -523,8 +525,35 @@ function photosCard(limit, label, pid) {
     }));
   const head = h('h3', {}, `Photos (${order.length})`);
   if (pid && state.photoOrder[pid]) head.append(h('button', { class: 'small', onclick: () => { delete state.photoOrder[pid]; save(); rerender(); } }, 'Reset order'));
-  head.append(h('button', { onclick: async (e) => { const b = e.currentTarget; await downloadPhotos(n, order, pid); b.textContent = 'Saved!'; } }, `Download ${n}`));
-  const folder = ['Downloads', 'Crosslist', it.itemId || 'item'].concat(pid ? [pid] : []).join('\\') + '\\';
+  // Remember where this site's photos were saved, and in which order, so the
+  // path can be copied later without downloading again.
+  const dirKey = (it.itemId || 'item') + '/' + (pid || 'all');
+  const sig = order.slice(0, n).join('|');
+  const saved = state.photoDirs[dirKey];
+  const fresh = saved && saved.sig === sig ? saved.dir : '';
+  const saveHere = async () => {
+    const dir = await downloadPhotos(n, order, pid);
+    if (dir) { state.photoDirs[dirKey] = { dir, sig }; save(); }
+    return dir;
+  };
+  head.append(h('button', { onclick: async (e) => { const b = e.currentTarget; await saveHere(); b.textContent = 'Saved!'; } }, `Download ${n}`));
+  // Copy the full folder path, e.g. C:\Users\you\Downloads\Crosslist\123\depop.
+  // If this site's photos aren't saved in this order yet, it saves them first.
+  head.append(h('button', {
+    title: 'Copy the full path of the folder with this site\'s photos. Paste it into the upload window\'s address bar.',
+    onclick: async (e) => {
+      const b = e.currentTarget;
+      let dir = fresh;
+      if (!dir) {
+        b.textContent = 'Saving…'; b.disabled = true;
+        try { dir = await saveHere(); } catch (err) { dir = ''; } finally { b.disabled = false; b.textContent = 'Copy folder path'; }
+      }
+      if (!dir) { setStatus('Could not find where Chrome saved the photos. Check chrome://downloads.', 'error'); return; }
+      await copyText(dir, b);
+      setStatus('Copied: ' + dir, 'ok');
+    },
+  }, 'Copy folder path'));
+  const folder = fresh ? fresh + '\\' : ['Downloads', 'Crosslist', it.itemId || 'item'].concat(pid ? [pid] : []).join('\\') + '\\';
   card.append(head, grid, h('div', { class: 'note' },
     `Saves to ${folder} as 01.jpg, 02.jpg… in this order. ` +
     (limit && order.length > limit ? `${label} allows ${limit} photos; faded ones are left out. ` : '') +

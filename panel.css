@@ -44,7 +44,7 @@ nav button.active[data-tab="stats"] { color: var(--ok); border-color: var(--ok);
 main { padding: 10px 12px 40px; }
 .empty { color: var(--muted); text-align: center; padding: 40px 10px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
-.card h3 { margin: 0 0 8px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.card h3 { margin: 0 0 8px; font-size: 13px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; }
 .toolbar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .toolbar button { flex: 1; }
 
