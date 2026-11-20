@@ -410,11 +410,13 @@
       }
     </style>
     <div class="box">
-      <div class="head"><span>Crosslist Helper</span><b id="toggle">–</b></div>
+      <div class="head"><span id="title">Crosslist Helper</span><b id="toggle">–</b></div>
       <div class="body" id="body"></div>
     </div>
     <button class="pill hidden" id="pill"></button>`;
   const body = root.getElementById('body');
+  // Show the version, so you can tell whether this page has the newest code.
+  try { root.getElementById('title').textContent = 'Crosslist Helper v' + chrome.runtime.getManifest().version; } catch (e) { /* extension was reloaded */ }
   const pill = root.getElementById('pill');
   let collapsed = false;
   root.querySelector('.head').addEventListener('click', () => {
@@ -450,6 +452,11 @@
       b.onclick = () => addPhotos(false);
       row.append(k, v, st, b);
       body.append(row);
+    } else if (SITE === 'depop') {
+      const m = document.createElement('div');
+      m.className = 'muted';
+      m.textContent = 'Photos: none sent here yet. Open the side panel; it sends them here.';
+      body.append(m);
     }
     for (const f of keys) {
       const row = document.createElement('div');
@@ -541,7 +548,14 @@
   const photoTiles = () => document.querySelectorAll('button[title="Delete image"]').length;
 
   async function photoFile(url, i) {
-    const r = await chrome.runtime.sendMessage({ type: 'crosslist:photo', url });
+    let r;
+    try {
+      r = await chrome.runtime.sendMessage({ type: 'crosslist:photo', url });
+    } catch (e) {
+      // After you reload the extension, pages that were already open lose their link to it.
+      if (/context invalidated|Receiving end/i.test(e.message)) throw new Error('The extension was updated. Refresh this page (F5) and try again.');
+      throw e;
+    }
     if (!r || !r.ok) throw new Error((r && r.error) || 'Could not get the eBay photo');
     const bin = atob(r.base64);
     const bytes = new Uint8Array(bin.length);
