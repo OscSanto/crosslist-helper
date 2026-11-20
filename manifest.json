@@ -12,7 +12,7 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["sidePanel", "scripting", "storage", "downloads", "tabs", "clipboardWrite"],
+  "permissions": ["sidePanel", "scripting", "storage", "downloads", "tabs", "clipboardWrite", "alarms"],
   "host_permissions": [
     "*://*.ebay.com/*",
     "*://*.ebay.ca/*",

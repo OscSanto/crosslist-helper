@@ -40,6 +40,26 @@ Every tab has a **What you keep** card. It shows your payout on Depop, Poshmark,
 
 Fee rules (US, Nov 2026) are in `fees.js`: Depop 3.3% + $0.45 processing (+12% if boosted), Poshmark $2.95 under $15 or 20%, Mercari 10%, eBay 13.6% + $0.40 per order. Sales tax is left out. The sites change their fees often, so check their fee pages and edit `fees.js` when they do.
 
+## Depop stats history
+
+Depop only shows your views and clicks for the **last 7 days**, and forgets them after that. The **Stats** tab keeps them, so you can see how they change over weeks.
+
+1. Once a day, open **Depop > Selling Hub > Stats**. The tab saves your shop's 7-day views and clicks, how much came from boosting, and boosting fees.
+2. Open **Selling** and scroll to the bottom. It saves each listing's views, clicks, likes, bags, offers and boost increase.
+3. Sometimes open **Sold**. Listings that left your Active list are marked sold or removed.
+
+A small note at the bottom left of the Depop page shows what was saved. A red **!** on the toolbar icon means today's numbers aren't saved yet (you can turn it off in the Stats tab).
+
+The Stats tab shows:
+- views and click rate over time, boosted vs not boosted
+- boosting fees and cost per boosted click
+- every listing's views, clicks, likes, new views per day and a small trend line
+- **quiet** listings: 7+ days old, under 2 new views a day, no likes. Refresh or relist them yourself, one at a time.
+- a note for each day ("listed 20 items", "boost off") shown on the chart
+- CSV and JSON export
+
+It only reads pages you open yourself. It sends no requests to Depop, clicks nothing, and needs no account. Everything stays in this browser.
+
 ## What gets auto-filled
 
 | Site | Auto-filled | By hand |
@@ -62,7 +82,7 @@ Each item gets a private **SKU** (`CL-` + the eBay item number) on Depop and Pos
 | File | What it does |
 |---|---|
 | `manifest.json` | Extension settings and permissions |
-| `background.js` | Opens the side panel when you click the icon; fetches eBay photos for the Depop upload |
+| `background.js` | Opens the side panel when you click the icon; fetches eBay photos for the Depop upload; the daily stats reminder |
 | `extractor.js` | Runs on the eBay page and reads title, price, condition, item specifics, photos, category path |
 | `panel.html/css/js` | The side panel: tabs, Ask Claude, copy buttons, photo download |
 | `site-options.js` | Depop / Poshmark / Mercari option lists |
@@ -70,3 +90,5 @@ Each item gets a private **SKU** (`CL-` + the eBay item number) on Depop and Pos
 | `fees.js` | Each site's fees, for the What you keep card |
 | `ai.js` | Builds the Claude prompt and reads Claude's JSON reply |
 | `filler.js` | Runs on the sell pages: the corner box and the auto-fill (and Depop photo upload) |
+| `stats-reader.js` | Runs on Depop's Selling Hub and saves the stats you open |
+| `stats-panel.js` | The Stats tab: charts, boosted vs not boosted, quiet listings, export |
