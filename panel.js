@@ -490,6 +490,7 @@ function photoOrder(pid) {
 // Photo grid. On a site tab (pid set) the photos can be dragged into a new order.
 // The first `limit` photos are the ones that download; the rest are faded.
 // Dropping a photo into a kept slot pushes the last kept photo out.
+const PHOTO_DRAG = 'application/x-crosslist-photos'; // same type filler.js listens for
 function photosCard(limit, label, pid) {
   const it = state.item;
   const order = photoOrder(pid);
@@ -515,7 +516,12 @@ function photosCard(limit, label, pid) {
         ondblclick: () => window.open(src, '_blank'),
       }, h('img', { src, loading: 'lazy', alt: '', draggable: 'false' }), h('span', {}, i + 1));
       if (pid) {
-        cell.addEventListener('dragstart', (e) => { dragFrom = i; cell.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); });
+        cell.addEventListener('dragstart', (e) => {
+          dragFrom = i; cell.classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'copyMove'; // move = reorder here, copy = drop on the sell page
+          e.dataTransfer.setData('text/plain', String(i));
+          e.dataTransfer.setData(PHOTO_DRAG, JSON.stringify({ urls: [src] }));
+        });
         cell.addEventListener('dragend', () => cell.classList.remove('dragging'));
         cell.addEventListener('dragover', (e) => { e.preventDefault(); cell.classList.add('over'); });
         cell.addEventListener('dragleave', () => cell.classList.remove('over'));
@@ -524,6 +530,18 @@ function photosCard(limit, label, pid) {
       return cell;
     }));
   const head = h('h3', {}, `Photos (${order.length})`);
+  // Drag this onto the sell page to add every kept photo, in this order.
+  // filler.js on the page catches the drop and uploads them as files.
+  const dragAll = pid ? h('div', {
+    class: 'dragall', draggable: 'true',
+    title: 'Drag onto the sell page to add these photos in this order',
+    ondragstart: (e) => {
+      dragFrom = -1;
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData(PHOTO_DRAG, JSON.stringify({ urls: order.slice(0, n) }));
+      e.dataTransfer.setData('text/plain', `${n} photos`);
+    },
+  }, `⠿ Drag all ${n} onto the ${PLATFORMS[pid].name} page`) : null;
   if (pid && state.photoOrder[pid]) head.append(h('button', { class: 'small', onclick: () => { delete state.photoOrder[pid]; save(); rerender(); } }, 'Reset order'));
   // Remember where this site's photos were saved, and in which order, so the
   // path can be copied later without downloading again.
@@ -554,11 +572,13 @@ function photosCard(limit, label, pid) {
     },
   }, 'Copy folder path'));
   const folder = fresh ? fresh + '\\' : ['Downloads', 'Crosslist', it.itemId || 'item'].concat(pid ? [pid] : []).join('\\') + '\\';
-  card.append(head, grid, h('div', { class: 'note' },
+  card.append(head, grid, dragAll, h('div', { class: 'note' },
     `Saves to ${folder} as 01.jpg, 02.jpg… in this order. ` +
     (limit && order.length > limit ? `${label} allows ${limit} photos; faded ones are left out. ` : '') +
     (pid ? 'Drag a photo onto another spot to move it. ' : '') +
-    (pid === 'depop' ? 'On Depop there is no need to download: Fill everything uploads them for you.' : 'Then drag the files into the upload box.')));
+    (pid === 'depop'
+      ? 'On Depop there is no need to download: Fill everything uploads them for you, or drag photos onto the page.'
+      : 'No need to download: drag a photo (or "Drag all") from here onto the sell page.')));
   return card;
 }
 

@@ -457,6 +457,19 @@
       m.className = 'muted';
       m.textContent = 'Photos: none sent here yet. Open the side panel; it sends them here.';
       body.append(m);
+    } else if (photos.length) {
+      // Poshmark / Mercari: you drag photos in from the side panel.
+      const row = document.createElement('div');
+      row.className = 'row';
+      const k = document.createElement('span'); k.className = 'k'; k.textContent = 'Photos';
+      const v = document.createElement('span'); v.className = 'v';
+      v.textContent = 'Drag from the side panel onto this page';
+      v.title = 'Drag one photo, or "Drag all" for every photo in your order.';
+      const st = document.createElement('span'); st.textContent = status.photos || '';
+      st.className = /✓/.test(st.textContent) ? 'ok' : /✗/.test(st.textContent) ? 'bad' : 'muted';
+      if (status.photos_err) st.title = status.photos_err;
+      row.append(k, v, st);
+      body.append(row);
     }
     for (const f of keys) {
       const row = document.createElement('div');
@@ -570,11 +583,12 @@
   }
 
   // fromFillAll: skip if the page already has photos, so Fill everything twice doesn't double them.
-  async function addPhotos(fromFillAll) {
+  // list: which photos (default: all of them, in your order).
+  async function addPhotos(fromFillAll, list = photos) {
     const setSt = (s, err) => { status.photos = s; status.photos_err = err || ''; render(); };
     const have = photoTiles();
     if (fromFillAll && have) { setSt('✓ already there'); return; }
-    const todo = photos.slice(0, Math.max(0, DEPOP_MAX - have));
+    const todo = list.slice(0, Math.max(0, DEPOP_MAX - have));
     if (!todo.length) { setSt('✗', `Depop already has ${have} photos (the most it takes).`); return; }
     filling = true;
     try {
@@ -599,6 +613,82 @@
       filling = false;
     }
   }
+
+  // ---------------- photos dragged in from the side panel ----------------
+  // A photo dragged from the panel arrives as a web address, which upload
+  // boxes ignore. So we catch the drop, fetch the photo(s) through the
+  // extension, and hand them to the site's photo box as real files.
+  // Only reacts to drags that start in the Crosslist side panel.
+  const DRAG_TYPE = 'application/x-crosslist-photos';
+  const SITE_MAX = { depop: 8, poshmark: 16, mercari: 12 };
+  const ours = (dt) => !!dt && [...dt.types].includes(DRAG_TYPE);
+
+  function photoInput() {
+    if (SITE === 'depop') return document.getElementById('upload-input__input');
+    if (SITE === 'poshmark') return document.getElementById('img-file-input') || document.querySelector('input[type=file][accept*="jpg"]');
+    return document.querySelector('input[type=file][data-testid="SellPhotoInput"]') || document.querySelector('input[type=file][accept^="image"]');
+  }
+
+  // Shown while you drag over the page.
+  let veil;
+  function showVeil(on) {
+    if (!veil) {
+      veil = document.createElement('div');
+      veil.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;display:flex;align-items:center;justify-content:center;' +
+        'background:rgba(47,111,222,.12);outline:3px dashed #2f6fde;outline-offset:-10px;font:600 16px system-ui,sans-serif;color:#2f6fde';
+      veil.textContent = 'Drop to add the photo(s)';
+    }
+    if (on && !veil.isConnected) document.documentElement.append(veil);
+    if (!on && veil.isConnected) veil.remove();
+  }
+
+  // Poshmark and Mercari take several files at once, in order.
+  async function dropPhotos(urls) {
+    const setSt = (s, err) => { status.photos = s; status.photos_err = err || ''; render(); };
+    if (SITE === 'depop') return addPhotos(false, urls); // Depop: one at a time, waits for each
+    const todo = urls.slice(0, SITE_MAX[SITE]);
+    filling = true;
+    try {
+      const files = [];
+      for (let i = 0; i < todo.length; i++) {
+        setSt(`getting ${i + 1}/${todo.length}…`);
+        files.push(await photoFile(todo[i], i));
+      }
+      const input = photoInput();
+      if (!input) throw new Error('The photo box is not on the page. Open the sell form first.');
+      const dt = new DataTransfer();
+      for (const f of files) dt.items.add(f);
+      input.files = dt.files;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      setSt(`✓ ${files.length} added`);
+    } catch (e) {
+      setSt('✗', e.message || String(e));
+    } finally {
+      filling = false;
+    }
+  }
+
+  let veilTimer;
+  document.addEventListener('dragover', (e) => {
+    if (!isSellPage() || !ours(e.dataTransfer)) return;
+    e.preventDefault(); // allow the drop
+    e.stopPropagation(); // keep the site's own drop box out of it
+    e.dataTransfer.dropEffect = 'copy';
+    showVeil(true);
+    clearTimeout(veilTimer);
+    veilTimer = setTimeout(() => showVeil(false), 300); // drag left the page or was cancelled
+  }, true);
+  document.addEventListener('drop', (e) => {
+    if (!isSellPage() || !ours(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showVeil(false);
+    let urls = [];
+    try { urls = JSON.parse(e.dataTransfer.getData(DRAG_TYPE)).urls || []; } catch (err) { /* bad data */ }
+    urls = urls.filter((u) => /^https:\/\/[^/]*ebayimg\.com\//.test(u));
+    if (urls.length) dropPhotos(urls);
+  }, true);
 
   async function fillAll() {
     if (SITE === 'depop' && photos.length) await addPhotos(true);

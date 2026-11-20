@@ -137,3 +137,5 @@ svg.chart .axis { fill: var(--muted); font-size: 9px; }
 .lmeta { font-size: 11px; color: var(--muted); }
 .lmeta b { color: var(--bad); font-weight: 600; }
 svg.spark { width: 70px; height: 20px; flex: none; color: var(--accent); }
+.dragall { margin-top: 6px; padding: 6px 8px; border: 1px dashed var(--accent); border-radius: 6px; color: var(--accent); font-size: 12px; font-weight: 600; text-align: center; cursor: grab; user-select: none; }
+.dragall:active { cursor: grabbing; }
