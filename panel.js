@@ -465,6 +465,7 @@ function render() {
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
   const c = $('#content');
   c.replaceChildren();
+  if (state.tab === 'stats') { renderStats(c); return; } // works without an eBay item
   if (!state.item) {
     c.append(h('div', { class: 'empty' },
       '1. Open an eBay listing.', h('br'), '2. Click "Extract from this eBay page".', h('br'),
@@ -746,9 +747,11 @@ function siteFromUrl(u) {
   return null;
 }
 async function followActiveTab() {
-  if (!state.autoSwitch || !state.item) return;
+  if (!state.autoSwitch) return;
   const t = await activeTab();
-  const site = siteFromUrl((t && t.url) || '');
+  const url = (t && t.url) || '';
+  // Depop's Selling Hub -> Stats tab; sell pages -> that site's tab (needs an item).
+  const site = /depop\.com\/sellinghub/i.test(url) ? 'stats' : state.item ? siteFromUrl(url) : null;
   if (site && site !== state.tab) { state.tab = site; save(); render(); }
 }
 chrome.tabs.onActivated.addListener(followActiveTab);
