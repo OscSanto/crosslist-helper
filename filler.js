@@ -357,7 +357,7 @@
       if (!el) continue;
       let v;
       try { v = readOne(f, el); } catch (e) { continue; }
-      if (!v) continue; // empty on the page (or unreadable): nothing to save
+      if (!v || /^\$?0+(\.0+)?$/.test(v)) continue; // empty (or a blank 0.00 price): nothing to save
       if (!same(v, data[f.key] || '')) next[f.key] = v;
     }
     if (JSON.stringify(next) !== JSON.stringify(changes)) {
