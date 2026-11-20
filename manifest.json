@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Crosslist Helper",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "description": "Extract an eBay listing, ask Claude to fill in every field, and auto-fill the Depop, Poshmark and Mercari sell forms.",
   "action": {
     "default_title": "Open Crosslist Helper"
@@ -28,6 +28,11 @@
     {
       "matches": ["*://*.depop.com/*", "*://*.poshmark.com/*", "*://*.mercari.com/*"],
       "js": ["filler.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.depop.com/sellinghub/*"],
+      "js": ["stats-reader.js"],
       "run_at": "document_idle"
     }
   ]
